@@ -21,10 +21,14 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+
+# Suppress noisy deprecation warnings from third-party libs
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ── Path setup: run from inside backend/ ──────────────────────────────────
 _BACKEND = Path(__file__).resolve().parents[1]
@@ -33,14 +37,20 @@ sys.path.insert(0, str(_BACKEND))
 from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES
 from contracts.types import DOAInput, LLMInput, SEDInput
 from modules.doa.interface import DOAModel
-from modules.llm.mock import MockLLMReasoner
+from modules.llm.interface import LLMReasoner
 
 logging.basicConfig(
     stream=sys.stderr,
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
+# Keep our own logger at INFO; suppress noisy third-party loggers
 log = logging.getLogger("file_test")
+log.setLevel(logging.INFO)
+log.propagate = False
+_handler = logging.StreamHandler(sys.stderr)
+_handler.setFormatter(logging.Formatter("%(message)s"))
+log.addHandler(_handler)
 
 
 # ── Decide which SED model to use ────────────────────────────────────────
@@ -144,11 +154,14 @@ def main() -> None:
 
     sed_model = _load_sed_model()
     doa_model = DOAModel()
-    llm_reasoner = MockLLMReasoner()
+    llm_reasoner = LLMReasoner()
 
     alerts_emitted = 0
     import time
     t0 = time.perf_counter()
+
+    PRIORITY_ICON = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+    print(flush=True)
 
     for window_id, stereo_window in windows:
         timestamp = window_id * HOP_SIZE_S   # synthetic timestamp
@@ -199,26 +212,22 @@ def main() -> None:
             "message": llm_output.message,
         }
 
-        log.info(
-            "ALERT window %3d | %-13s | conf=%.2f | dir=%5.1f° dist=%.2f m | %s",
-            window_id,
-            sed_output.sound_class,
-            sed_output.confidence,
-            doa_output.direction_of_arrival,
-            doa_output.distance_estimation,
-            llm_output.priority.upper(),
-        )
-        print(json.dumps(alert), flush=True)
+        icon = PRIORITY_ICON.get(llm_output.priority, "⚪")
+        bar = "─" * 52
+        print(f"┌─ Window {window_id:>2}  @  {timestamp:.2f}s  {bar}", flush=True)
+        print(f"│  SED   class={sed_output.sound_class:<14} confidence={sed_output.confidence:.2%}")
+        print(f"│  DOA   direction={doa_output.direction_of_arrival:>6.1f}°    distance={doa_output.distance_estimation:.2f} m")
+        print(f"│  LLM   {icon} [{llm_output.priority.upper()}]  {llm_output.message}")
+        print(f"└{'─' * 68}", flush=True)
+        print()
         alerts_emitted += 1
 
     elapsed_ms = (time.perf_counter() - t0) * 1000
-    log.info("─" * 60)
-    log.info(
-        "Processed %d windows in %.1f ms (%.2f ms/window)",
-        len(windows), elapsed_ms, elapsed_ms / max(len(windows), 1),
-    )
-    log.info("Alerts emitted: %d", alerts_emitted)
-    log.info("─" * 60)
+    print("═" * 70)
+    print(f"  Processed : {len(windows)} windows  ({duration_s:.2f}s audio)")
+    print(f"  Alerts    : {alerts_emitted}")
+    print(f"  Elapsed   : {elapsed_ms:.1f} ms  ({elapsed_ms / max(len(windows), 1):.1f} ms/window)")
+    print("═" * 70)
 
 
 if __name__ == "__main__":

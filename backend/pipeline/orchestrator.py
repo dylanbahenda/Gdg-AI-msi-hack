@@ -41,7 +41,7 @@ from contracts.types import (
 # ── MOCK SWAP ────────────────────────────────────────────────────────────────
 # SED: swap MockSEDModel → SEDModel (from modules.sed.interface) when ready.
 from modules.sed.mock import MockSEDModel as SEDModel
-from modules.llm.mock import MockLLMReasoner as LLMReasoner
+from modules.llm.interface import LLMReasoner
 
 # DOA: real GCC-PHAT implementation — no mock needed.
 from modules.doa.interface import DOAModel

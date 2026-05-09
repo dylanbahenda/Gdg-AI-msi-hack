@@ -1,23 +1,42 @@
 """
-LLM interface stub — to be implemented by the ML team.
+Local LLM reasoning module.
 
-Replace the body of LLMReasoner.reason() with the real local LLM inference.
-Do NOT change the method signature or the import paths; the pipeline
-depends on this exact interface.
-
-NO external API calls are allowed. The model must run fully offline.
+This implementation keeps the pipeline fully offline by calling a local
+Ollama model. The human-facing description comes from the model, while the
+priority is hardcoded from the detected sound class.
 """
 from __future__ import annotations
 
+import ollama
+
 from contracts.types import LLMInput, LLMOutput
+
+_PRIORITIES: dict[str, str] = {
+    "baby_cry": "high",
+    "alarm": "high",
+    "broken_glass": "high",
+    "metal_sound": "medium",
+    "doorbell": "low",
+    "clap": "low",
+}
+
+_FALLBACK_PRIORITY = "medium"
+_FALLBACK_MESSAGE = "Sound detected — could not assess urgency"
+
+_SYSTEM_PROMPT = (
+    "You are an assistant for hearing-impaired users. "
+    "You receive a sound classification label detected by a microphone. "
+    "Respond with one single, clear, friendly sentence describing what is likely happening around the user. "
+    "Never say 'I' or explain yourself. Just describe the situation directly. "
+    "Keep the answer under 80 characters."
+)
 
 
 class LLMReasoner:
-    """Real LLM reasoner — fill in by ML team."""
+    """Local Ollama-backed reasoner for alert generation."""
 
     def __init__(self) -> None:
-        # TODO: load the local LLM here (once at startup, not per call).
-        raise NotImplementedError("LLMReasoner not yet implemented")
+        self._model = "gemma3:1b"
 
     def reason(self, input: LLMInput) -> LLMOutput:  # noqa: A002
         """
@@ -32,4 +51,28 @@ class LLMReasoner:
                         message="Sound detected — could not assess urgency")
         - NO network calls. Fully local/offline.
         """
-        raise NotImplementedError
+        priority = _PRIORITIES.get(input.sound_class, _FALLBACK_PRIORITY)
+
+        try:
+            response = ollama.chat(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"label: {input.sound_class}; "
+                            f"confidence: {input.sed_confidence:.2f}; "
+                            f"direction: {input.doa_direction_of_arrival:.1f}; "
+                            f"distance: {input.doa_distance_estimation:.1f}"
+                        ),
+                    },
+                ],
+            )
+            message = response.message.content.strip()
+            if not message:
+                raise ValueError("empty LLM response")
+        except Exception:
+            return LLMOutput(priority=_FALLBACK_PRIORITY, message=_FALLBACK_MESSAGE)
+
+        return LLMOutput(priority=priority, message=message[:80])
