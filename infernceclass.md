@@ -15,6 +15,8 @@ SoundClass = Literal[
     "doorbell",
     "metal_sound",
     "alarm"
+    "dog_bark"
+    "scream"
 ]
 
 Priority = Literal["low", "medium", "high"] #LLM defines it
