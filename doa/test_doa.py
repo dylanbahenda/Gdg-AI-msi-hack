@@ -51,12 +51,12 @@ def test():
         audio_chunk=audio_chunk,
         sample_rate=sample_rate,
         timestamp=1700000000.0, # Fake unix timestamp
-        window_id=0             # First window
+        window_id=2             # First window
     )
 
     # 3. Instantiate the Engine
-    # (Assuming standard laptop mic distance is ~25cm = 0.25m)
-    engine = DOAEngine(mic_distance_meters=0.25)
+    # (Assuming standard laptop mic distance is ~10cm = 0.10m)
+    engine = DOAEngine(mic_distance_meters=0.15)
     
     print("\nProcessing through DOA Engine (with Coherence + Peak RMS logic)...")
     

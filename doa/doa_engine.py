@@ -16,13 +16,13 @@ class DOAOutput:
     distance_estimation: float
 
 class DOAEngine:
-    def __init__(self, mic_distance_meters: float = 0.25):
+    def __init__(self, mic_distance_meters: float = 0.15):
         self.mic_distance = mic_distance_meters
         self.speed_of_sound = 343.0  # m/s
         
         # Calibration constants
         # 0.2 represents the expected 95th-percentile amplitude at 1 meter
-        self.ref_peak_at_1_meter = 0.2  
+        self.ref_peak_at_1_meter = 0.1  
 
     def process(self, input_data: DOAInput) -> DOAOutput:
         audio = input_data.audio_chunk
