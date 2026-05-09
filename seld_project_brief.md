@@ -23,7 +23,7 @@ Mic Input → SED → DOA → Temporal Alignment → LLM Reasoning → User Noti
 
 ### 1. Sound Event Detection (SED)
 
-- **Model:** ReDimNet
+- **Model:** PretrainedSED
 - **Task:** classify what the sound is
 - **Target classes:** clap, baby cry, broken glass, doorbell, metal sounds, alarms
 - Runs fully on-device
@@ -67,7 +67,7 @@ Mic Input → SED → DOA → Temporal Alignment → LLM Reasoning → User Noti
 
 | Component | Candidate |
 |---|---|
-| SED | ReDimNet or PANNs |
+| SED | PretrainedSED or PANNs |
 | DOA | TBD |
 | LLM | TBD |
 | Audio I/O | `sounddevice` or `pyaudio` |
