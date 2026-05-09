@@ -6,12 +6,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from sed.ontology import ALL_SOURCES
+from modules.sed.ontology import ALL_SOURCES
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_REPO_PATH = _PROJECT_ROOT / "third_party" / "PretrainedSED"
-_DEFAULT_CHECKPOINT_DIR = _PROJECT_ROOT / "resources"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_REPO_PATH = Path(__file__).resolve().parents[2] / "third_party" / "PretrainedSED"
+_DEFAULT_CHECKPOINT_DIR = Path(__file__).resolve().parents[2] / "resources"
 _VALID_ENCODERS = ("M2D", "BEATs", "ATST-F")
 
 _INSTANCE_CACHE: dict[tuple[str, str], "SEDModel"] = {}

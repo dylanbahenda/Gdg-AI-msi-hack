@@ -3,7 +3,7 @@ from typing import get_args
 
 import numpy as np
 
-from sed.types import SEDInput, SEDOutput, SoundClass
+from contracts.types import SEDInput, SEDOutput, SoundClass
 
 
 EXPECTED_CLASSES = (

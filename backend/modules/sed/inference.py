@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from sed.model import SEDModel, get_sed_model
-from sed.ontology import MACRO_DETECTION_THRESHOLDS, MACRO_TO_SOURCES
-from sed.types import SEDInput, SEDOutput, SoundClass
+from modules.sed.model import SEDModel, get_sed_model
+from modules.sed.ontology import MACRO_DETECTION_THRESHOLDS, MACRO_TO_SOURCES
+from contracts.types import SEDInput, SEDOutput, SoundClass
 
 
 _TARGET_SAMPLE_RATE = 16000

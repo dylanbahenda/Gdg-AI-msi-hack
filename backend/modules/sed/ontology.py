@@ -1,4 +1,4 @@
-from sed.types import SoundClass
+from contracts.types import SoundClass
 
 
 MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {

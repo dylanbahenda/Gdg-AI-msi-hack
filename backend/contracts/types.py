@@ -5,7 +5,18 @@ from typing import Literal
 
 import numpy as np
 
-SoundClass = Literal["clap", "baby_cry", "broken_glass", "doorbell", "metal_sound", "alarm"]
+SoundClass = Literal[
+    "clap",
+    "crying",
+    "broken_glass",
+    "doorbell",
+    "metal_sound",
+    "alarm",
+    "dog",
+    "scream",
+    "knock",
+    "phone",
+]
 Priority = Literal["low", "medium", "high"]
 
 

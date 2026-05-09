@@ -3,5 +3,8 @@
 # All inference runs locally.  No cloud SDKs, no API client libraries.
 # Install with:  pip install -r requirements.txt
 
-numpy>=1.24.0
+numpy>=1.26,<2
 sounddevice>=0.4.6
+torch>=2.2
+torchaudio>=2.2
+soundfile>=0.12

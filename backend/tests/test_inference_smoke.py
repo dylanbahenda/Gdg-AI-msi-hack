@@ -10,12 +10,13 @@ from typing import get_args
 import numpy as np
 import pytest
 
-from sed.types import SEDInput, SoundClass
+from contracts.types import SEDInput, SoundClass
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_REPO_PATH = _PROJECT_ROOT / "third_party" / "PretrainedSED"
-_CHECKPOINT = _PROJECT_ROOT / "resources" / "M2D_strong_1.pt"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+_REPO_PATH = _BACKEND_ROOT / "third_party" / "PretrainedSED"
+_CHECKPOINT = _BACKEND_ROOT / "resources" / "M2D_strong_1.pt"
 
 _skip_reason = None
 if not _REPO_PATH.exists():
@@ -30,7 +31,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def detector():
-    from sed.inference import SEDDetector
+    from modules.sed.inference import SEDDetector
 
     return SEDDetector(encoder="M2D", device="cpu")
 

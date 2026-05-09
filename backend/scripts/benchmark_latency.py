@@ -9,8 +9,8 @@ import time
 
 import numpy as np
 
-from sed.inference import SEDDetector
-from sed.types import SEDInput
+from modules.sed.inference import SEDDetector
+from contracts.types import SEDInput
 
 
 def main() -> None:

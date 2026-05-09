@@ -1,12 +1,12 @@
 from typing import get_args
 
-from sed.ontology import (
+from modules.sed.ontology import (
     ALL_SOURCES,
     MACRO_TO_SOURCES,
     SOURCE_THRESHOLDS,
     SOURCE_TO_MACRO,
 )
-from sed.types import SoundClass
+from contracts.types import SoundClass
 
 
 def test_macro_count():

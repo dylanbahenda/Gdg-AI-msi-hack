@@ -43,7 +43,7 @@ from modules.doa.mock import MockDOAModel as DOAModel  # noqa: E402
 from modules.llm.mock import MockLLMReasoner as LLMReasoner  # noqa: E402
 
 # Production (real): uncomment these three lines and remove the mock imports.
-# from modules.sed.interface import SEDModel
+# from modules.sed.inference import SEDDetector as SEDModel
 # from modules.doa.interface import DOAModel
 # from modules.llm.interface import LLMReasoner
 # ─────────────────────────────────────────────────────────────────────────────

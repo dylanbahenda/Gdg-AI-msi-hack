@@ -18,8 +18,8 @@ from pathlib import Path
 import librosa
 import numpy as np
 
-from sed.inference import SEDDetector
-from sed.types import SEDInput
+from modules.sed.inference import SEDDetector
+from contracts.types import SEDInput
 
 
 _TARGET_SR = 16000
