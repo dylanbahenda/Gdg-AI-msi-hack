@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Airbnb design system ─────────────────────────────────────────── */
+
+  /* Canvas & surfaces */
+  --color-canvas:       #ffffff;
+  --color-surface-soft: #f7f7f7;
+  --color-surface-strong: #f2f2f2;
+
+  /* Hairlines */
+  --color-hairline:      #dddddd;
+  --color-hairline-soft: #ebebeb;
+
+  /* Text */
+  --color-ink:      #222222;
+  --color-body:     #3f3f3f;
+  --color-muted:    #6a6a6a;
+
+  /* Brand accent — Rausch */
+  --color-rausch:         #ff385c;
+  --color-rausch-active:  #e00b41;
+  --color-rausch-pale:    #ffd1da;
+
+  /* Priority (Rausch carries high-severity) */
+  --color-priority-high:   #ff385c;
+  --color-priority-medium: #f97316;
+  --color-priority-low:    #16a34a;
+
+  /* Radar — stays dark internally */
+  --color-radar-bg:    #060d06;
+  --color-radar-ring:  #0f1f0f;
+  --color-radar-sweep: #22c55e;
+  --color-radar-grid:  #1a2f1a;
+  --color-radar-label: #4a6a4a;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Elevation — single shadow tier (Airbnb) */
+  --shadow-card: rgba(0,0,0,0.02) 0 0 0 1px, rgba(0,0,0,0.04) 0 2px 6px, rgba(0,0,0,0.10) 0 4px 8px;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: #f7f7f7;
+  font-family: var(--font-sans);
+  color: #222222;
+}

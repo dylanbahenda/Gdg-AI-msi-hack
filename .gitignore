@@ -1,0 +1,72 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.env
+
+# PyInstaller output (sidecar binary)
+backend/dist/
+backend/build/
+backend/*.spec
+
+# ── Node / npm ────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Vite build output
+frontend/dist/
+
+# ── Rust / Cargo ──────────────────────────────────────────────────────────────
+frontend/src-tauri/target/
+
+# ── Tauri ─────────────────────────────────────────────────────────────────────
+# Bundled app outputs
+frontend/src-tauri/gen/android/
+frontend/src-tauri/gen/apple/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+*.dmg
+
+# ── IDE / editors ─────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# VS Code — keep extensions.json, ignore personal settings
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+
+# ── ML / model weights ────────────────────────────────────────────────────────
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.gguf
+*.ggml
+*.safetensors
+models/
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak
+.cache/

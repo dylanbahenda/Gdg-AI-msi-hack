@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ui",
+  "productName": "SELD Monitor",
   "version": "0.1.0",
-  "identifier": "com.pietrosaveri.ui",
+  "identifier": "com.pietrosaveri.seld",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "ui",
-        "width": 800,
-        "height": 600
+        "title": "SELD Monitor",
+        "width": 1100,
+        "height": 680,
+        "minWidth": 900,
+        "minHeight": 580
       }
     ],
     "security": {
