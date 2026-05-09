@@ -13,6 +13,7 @@ build/
 venv/
 env/
 .env
+.pytest_cache/
 
 # PyInstaller output (sidecar binary)
 backend/dist/
@@ -64,6 +65,11 @@ frontend/src-tauri/gen/apple/
 *.ggml
 *.safetensors
 models/
+
+# ── SED module — local clones, downloaded weights, agent state ───────────────
+.claude/
+third_party/
+resources/
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.log

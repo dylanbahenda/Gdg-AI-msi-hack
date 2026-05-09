@@ -14,9 +14,11 @@ SoundClass = Literal[
     "broken_glass",
     "doorbell",
     "metal_sound",
-    "alarm"
-    "dog_bark"
-    "scream"
+    "alarm",
+    "dog",
+    "scream",
+    "knock",
+    "phone",
 ]
 
 Priority = Literal["low", "medium", "high"] #LLM defines it
@@ -185,7 +187,7 @@ Respond with JSON:
 ```json
 {
   "priority": "high",
-  "message": "Baby cry detected behind you — check immediately"
+  "message": "Crying detected behind you — check immediately"
 }
 ```
 
@@ -193,11 +195,15 @@ Respond with JSON:
 
 | Sound | Default Priority | Notes |
 |---|---|---|
-| `baby_cry` | high | Always high regardless of confidence |
-| `alarm` | high | Always high |
+| `crying` | high | Always high regardless of confidence (covers infant + adult crying) |
+| `alarm` | high | Always high (covers alarms + emergency sirens) |
 | `broken_glass` | high | Security risk |
+| `scream` | high | Distress / safety signal |
 | `doorbell` | low | Informational |
+| `knock` | low | Informational, presence at door |
+| `phone` | low | Informational (ringtone, buzzer, vibration) |
 | `clap` | low | May be noise |
+| `dog` | medium | Context-dependent (bark vs growl) |
 | `metal_sound` | medium | Context-dependent |
 | `unknown` | — | Should never reach LLM (filtered by SED threshold) |
 

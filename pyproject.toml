@@ -1,0 +1,28 @@
+[project]
+name = "seld-sed"
+version = "0.1.0"
+description = "Sound Event Detection module for the SELD project"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=1.26,<2",
+    "torch>=2.2",
+    "torchaudio>=2.2",
+    "soundfile>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-benchmark>=4",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
