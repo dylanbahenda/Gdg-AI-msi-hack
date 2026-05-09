@@ -40,12 +40,12 @@ from contracts.types import (
 # Dev (mock): comment these three lines out when the real models are ready.
 from modules.sed.mock import MockSEDModel as SEDModel  # noqa: E402
 from modules.doa.mock import MockDOAModel as DOAModel  # noqa: E402
-from modules.llm.mock import MockLLMReasoner as LLMReasoner  # noqa: E402
+from modules.llm.interface import LLMReasoner  # noqa: E402
 
 # Production (real): uncomment these three lines and remove the mock imports.
 # from modules.sed.interface import SEDModel
 # from modules.doa.interface import DOAModel
-# from modules.llm.interface import LLMReasoner
+# from modules.llm.mock import MockLLMReasoner as LLMReasoner
 # ─────────────────────────────────────────────────────────────────────────────
 
 from pipeline import audio_io, alignment, event_bus
