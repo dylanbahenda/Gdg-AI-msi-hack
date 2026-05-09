@@ -47,8 +47,10 @@ async def start() -> asyncio.Queue[RawChunk]:
 
     hop_samples = int(HOP_SIZE_S * SAMPLE_RATE)
 
-    # Numpy circular ring buffer — avoids per-sample Python object allocation.
-    _buf = np.zeros(_BUF_SIZE, dtype=np.float32)
+    # Stereo numpy ring buffer — shape (BUF_SIZE, 2).
+    # Storing stereo avoids a separate buffer for DOA while keeping SED on
+    # channel-0 mono (extracted when the window is sliced out).
+    _buf = np.zeros((_BUF_SIZE, 2), dtype=np.float32)
     _write_pos: list[int] = [0]
     _total_written: list[int] = [0]
     _window_id: list[int] = [0]
@@ -59,19 +61,18 @@ async def start() -> asyncio.Queue[RawChunk]:
         time_info: object,
         status: sd.CallbackFlags,
     ) -> None:
-        # indata shape: (frames, 1) — view into sounddevice's buffer, no copy.
-        mono = indata[:, 0]
+        # indata shape: (frames, 2) — both channels, view into sounddevice's buffer.
         wp = _write_pos[0]
         end = wp + frames
 
         if end <= _BUF_SIZE:
             # Fast path: no wrap-around.
-            _buf[wp:end] = mono
+            _buf[wp:end] = indata
         else:
             # Wrap-around: split the write across the buffer boundary.
             split = _BUF_SIZE - wp
-            _buf[wp:] = mono[:split]
-            _buf[:frames - split] = mono[split:]
+            _buf[wp:] = indata[:split]
+            _buf[:frames - split] = indata[split:]
 
         _write_pos[0] = end % _BUF_SIZE
         _total_written[0] += frames
@@ -85,16 +86,17 @@ async def start() -> asyncio.Queue[RawChunk]:
         start_idx = (wp - WINDOW_SAMPLES) % _BUF_SIZE
         if start_idx + WINDOW_SAMPLES <= _BUF_SIZE:
             # Contiguous slice — single copy.
-            window = _buf[start_idx:start_idx + WINDOW_SAMPLES].copy()
+            stereo_window = _buf[start_idx:start_idx + WINDOW_SAMPLES].copy()
         else:
             # Wrap-around slice — two copies joined.
             tail_len = _BUF_SIZE - start_idx
-            window = np.empty(WINDOW_SAMPLES, dtype=np.float32)
-            window[:tail_len] = _buf[start_idx:]
-            window[tail_len:] = _buf[:WINDOW_SAMPLES - tail_len]
+            stereo_window = np.empty((WINDOW_SAMPLES, 2), dtype=np.float32)
+            stereo_window[:tail_len] = _buf[start_idx:]
+            stereo_window[tail_len:] = _buf[:WINDOW_SAMPLES - tail_len]
 
         raw = RawChunk(
-            audio=window,
+            audio=stereo_window[:, 0],   # channel-0 mono for SED
+            stereo_audio=stereo_window,  # both channels for DOA
             sample_rate=SAMPLE_RATE,
             timestamp=time.time(),
             window_id=_window_id[0],
@@ -114,7 +116,7 @@ async def start() -> asyncio.Queue[RawChunk]:
 
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
-        channels=1,
+        channels=2,
         dtype="float32",
         blocksize=hop_samples,   # callback fires exactly once per hop
         callback=_sd_callback,

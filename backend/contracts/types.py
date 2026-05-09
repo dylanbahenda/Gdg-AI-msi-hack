@@ -27,10 +27,11 @@ Priority = Literal["low", "medium", "high"]
 @dataclass
 class RawChunk:
     """A single sliding-window audio chunk produced by audio_io."""
-    audio: np.ndarray   # float32, shape (WINDOW_SAMPLES,)
-    sample_rate: int    # always 16000
-    timestamp: float    # unix epoch of the START of this window
-    window_id: int      # monotonically increasing, starts at 0
+    audio: np.ndarray         # float32, shape (WINDOW_SAMPLES,)  — channel 0 mono, for SED
+    stereo_audio: np.ndarray  # float32, shape (WINDOW_SAMPLES, 2) — both channels, for DOA
+    sample_rate: int          # always 16000
+    timestamp: float          # unix epoch of the START of this window
+    window_id: int            # monotonically increasing, starts at 0
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +61,7 @@ class SEDOutput:
 
 @dataclass
 class DOAInput:
-    audio_chunk: np.ndarray   # float32, shape (n_samples,) — same chunk as SED
+    audio_chunk: np.ndarray   # float32, shape (n_samples, 2) — stereo, channels 0 and 1
     sample_rate: int           # always 16000 Hz
     timestamp: float           # unix epoch of the START of this chunk
     window_id: int             # same window_id as the paired SEDInput
