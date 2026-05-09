@@ -34,11 +34,12 @@ def main(wav_path: Path) -> None:
     if sample_rate != 16000:
         print(f"WARNING: sample rate is {sample_rate} Hz; pipeline expects 16000 Hz.")
 
-    # Split into 1-second chunks
+    # 1.0 s window, 0.5 s hop (matches SED's try_clip.py)
     chunk_length = sample_rate
+    hop_length = sample_rate // 2
     chunks = [
-        audio_data[i * chunk_length:(i + 1) * chunk_length, :]
-        for i in range(len(audio_data) // chunk_length)
+        audio_data[start:start + chunk_length, :]
+        for start in range(0, len(audio_data) - chunk_length + 1, hop_length)
     ]
 
     # Auto-estimate mic distance
@@ -77,7 +78,8 @@ def main(wav_path: Path) -> None:
     for i, c in enumerate(chunks):
         a, d = engine.infer(c, sample_rate)
         peak = float(np.max(np.abs(c)))
-        print(f"  chunk {i}: peak={peak:.4f}  angle={a:+.1f}°  dist={d:.2f} m")
+        t = i * hop_length / sample_rate
+        print(f"  chunk {i} ({t:>4.2f}s): peak={peak:.4f}  angle={a:+.1f}°  dist={d:.2f} m")
 
 
 if __name__ == "__main__":

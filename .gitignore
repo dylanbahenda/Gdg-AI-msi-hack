@@ -70,6 +70,8 @@ models/
 .claude/
 third_party/
 resources/
+backend/third_party
+backend/resources
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.log
