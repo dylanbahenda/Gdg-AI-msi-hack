@@ -10,7 +10,7 @@ from typing import Literal
 
 SoundClass = Literal[
     "clap",
-    "baby_cry",
+    "crying",
     "broken_glass",
     "doorbell",
     "metal_sound",
