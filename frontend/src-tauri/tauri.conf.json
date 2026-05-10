@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SELD Monitor",
+  "productName": "Sentilo",
   "version": "0.1.0",
   "identifier": "com.pietrosaveri.seld",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "SELD Monitor",
+        "title": "Sentilo",
         "width": 760,
         "height": 510,
         "resizable": true
@@ -25,6 +25,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": ["binaries/seld-pipeline"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -32,5 +33,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "shell": {
+      "open": false,
+      "all": false,
+      "sidecar": true,
+      "scope": [
+        { "name": "seld-pipeline", "sidecar": true }
+      ]
+    }
   }
 }

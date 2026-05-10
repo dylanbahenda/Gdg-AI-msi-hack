@@ -9,9 +9,22 @@ import torch
 from modules.sed.ontology import ALL_SOURCES
 
 
+_IS_FROZEN = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+
+def _frozen_base() -> Path:
+    return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_DEFAULT_REPO_PATH = Path(__file__).resolve().parents[2] / "third_party" / "PretrainedSED"
-_DEFAULT_CHECKPOINT_DIR = Path(__file__).resolve().parents[2] / "resources"
+_DEFAULT_REPO_PATH = (
+    _frozen_base() / "third_party" / "PretrainedSED"
+    if _IS_FROZEN
+    else Path(__file__).resolve().parents[2] / "third_party" / "PretrainedSED"
+)
+_DEFAULT_CHECKPOINT_DIR = (
+    _frozen_base() / "resources"
+    if _IS_FROZEN
+    else Path(__file__).resolve().parents[2] / "resources"
+)
 _VALID_ENCODERS = ("M2D", "BEATs", "ATST-F")
 
 _INSTANCE_CACHE: dict[tuple[str, str], "SEDModel"] = {}
@@ -76,7 +89,12 @@ class SEDModel:
         """Ensure `<encoder>_strong_1.pt` is available in a local `resources/`
         folder relative to CWD (PredictionsWrapper resolves checkpoint names
         relative to this folder). Downloads from the upstream GitHub release if
-        no copy is cached in `self.checkpoint_dir`."""
+        no copy is cached in `self.checkpoint_dir`.
+
+        When running as a frozen PyInstaller bundle the app bundle directory is
+        read-only, so we stage into `~/.cache/seld/` and chdir there so that
+        PredictionsWrapper can find `resources/<checkpoint>` relative to CWD.
+        """
         ckpt_name = f"{self.encoder}_strong_1.pt"
         source = self.checkpoint_dir / ckpt_name
 
@@ -91,11 +109,21 @@ class SEDModel:
 
             download_url_to_file(url, str(source))
 
-        local_dir = Path.cwd() / "resources"
-        local_dir.mkdir(exist_ok=True)
+        # When frozen the CWD may be inside the read-only .app bundle, so stage
+        # into a persistent user-writable directory instead.
+        if _IS_FROZEN:
+            stage_root = Path.home() / ".cache" / "seld"
+        else:
+            stage_root = Path.cwd()
+
+        local_dir = stage_root / "resources"
+        local_dir.mkdir(parents=True, exist_ok=True)
         local_path = local_dir / ckpt_name
         if not local_path.exists():
             shutil.copy(source, local_path)
+
+        # PredictionsWrapper resolves the checkpoint relative to CWD.
+        os.chdir(stage_root)
 
     def _build_wrapper(self) -> torch.nn.Module:
         from models.prediction_wrapper import PredictionsWrapper  # type: ignore

@@ -1,6 +1,6 @@
-# SELD Local Sound Event Detection
+# Sentilo
 
-A local, offline SELD (Sound Event Localization and Detection) pipeline with live audio capture, sound class detection, direction-of-arrival estimation, and a Tauri/React frontend.
+A local, fully offline sound-awareness assistant for people with hearing impairments. Sentilo listens through the microphone, detects sound events (door knocks, alarms, speech, etc.), estimates their direction, and surfaces clear alerts in a compact UI — all on-device with no cloud dependency.
 
 ## Repository overview
 
@@ -55,7 +55,6 @@ The frontend is a Tauri + React app in `frontend/`.
 
 Key directories and files:
 
-- `backend/main.py`: CLI entrypoint; live mic mode, file fallback, demo replay.
 - `backend/pipeline/`: audio capture, orchestrator, event grouping, and offline file runner.
 - `backend/contracts/`: typed dataclasses for SED, DOA, LLM, and final alerts.
 - `backend/modules/sed/`: SED detector wrapper, ontology mapping, and model loader.
@@ -99,54 +98,43 @@ cd frontend
 npm install
 ```
 
-### 3. Ollama (optional but recommended)
+### 3. Ollama
 
 The local LLM alert generator expects a running Ollama server and the `gemma3:1b` model.
 If Ollama is not installed, the backend will still run and emit fallback alert text.
 
-## Running the app
+## Running Sentilo
 
-### Live microphone mode
+### Option A — Pre-built app (recommended)
 
-From the repo root:
+If you have the `Sentilo.app` bundle (from a release or built yourself):
+
+1. Double-click `Sentilo.app` in Finder, **or** run from the terminal:
+   ```bash
+   open "/path/to/Sentilo.app"
+   ```
+2. On first launch macOS may show a security prompt. If the app is unsigned, right-click → **Open** → **Open** to bypass Gatekeeper, or run:
+   ```bash
+   xattr -cr "/path/to/Sentilo.app"
+   ```
+3. Grant microphone access when prompted — Sentilo needs it to detect sounds.
+
+The app starts immediately in live microphone mode. No Python, Node, or Rust installation required.
+
+---
+
+### Option B — Development mode (requires full dev setup)
+
+From the repo root, after completing the [Setup](#setup) steps:
 
 ```bash
 cd frontend
 npm run tauri dev
 ```
 
-This launches the Tauri app and starts the backend process in live mic mode.
+This starts the React dev server and launches Tauri with hot-reload.
 
-### Demo mode with replay file
 
-Use environment variable `SELD_DEMO_FILE` to replay a test audio file:
-
-```bash
-cd frontend
-set SELD_DEMO_FILE=../backend/tests/assets/test_audio.wav && npm run tauri dev
-```
-
-On macOS/Linux:
-
-```bash
-SELD_DEMO_FILE=../backend/tests/assets/test_audio.wav npm run tauri dev
-```
-
-### Backend-only file fallback
-
-Run the backend on a local audio file without the UI:
-
-```bash
-cd backend
-python main.py --file tests/assets/test_audio.wav
-```
-
-Or demo playback at live speed:
-
-```bash
-cd backend
-python main.py --demo-file tests/assets/test_audio.wav
-```
 
 ## Testing
 
