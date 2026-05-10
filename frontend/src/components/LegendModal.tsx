@@ -11,7 +11,7 @@ const LEGEND_ITEMS = [
   { src: "/img/metal.jpg",       name: "Metal Sound" },
   { src: "/img/ring.jpg",        name: "Phone Ringing" },
   { src: "/img/scream.jpg",      name: "Scream" },
-  { src: "/img/boy.jpg",         name: "Doorbell" },
+  { src: "/img/doorbell.jpg",     name: "Doorbell" },
   { src: "/img/female.jpg",      name: "Female (You)" },
 ];
 
