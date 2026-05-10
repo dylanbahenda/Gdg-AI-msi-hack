@@ -71,7 +71,6 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
   const lastTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number>(0);
   const avatarImgRef = useRef<HTMLImageElement | null>(null);
-  const radarBgImgRef = useRef<HTMLImageElement | null>(null);
   const ringFallbackImgRef = useRef<HTMLImageElement | null>(null);
   const soundImgCacheRef = useRef<Map<SoundClass, HTMLImageElement>>(new Map());
 
@@ -93,13 +92,6 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
     img.src = avatarSrc;
     img.onload = () => { avatarImgRef.current = img; };
   }, [avatarSrc]);
-
-  // Load radar background image
-  useEffect(() => {
-    const img = new window.Image();
-    img.src = "/img/radar.jpg";
-    img.onload = () => { radarBgImgRef.current = img; };
-  }, []);
 
   // Load ring fallback image for events without a specific image
   useEffect(() => {
@@ -149,17 +141,6 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
       ctx.clearRect(0, 0, size, size);
       ctx.fillStyle = COLORS.bg;
       ctx.fillRect(0, 0, size, size);
-
-      // Draw radar.jpg background inside the circle
-      const radarBgImg = radarBgImgRef.current;
-      if (radarBgImg) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
-        ctx.clip();
-        ctx.drawImage(radarBgImg, cx - radius, cy - radius, radius * 2, radius * 2);
-        ctx.restore();
-      }
 
       ctx.save();
       ctx.beginPath();
