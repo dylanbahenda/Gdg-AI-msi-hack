@@ -1,20 +1,22 @@
 """
-Entry point for the SELD pipeline.
+CLI entry point for the SELD pipeline.
 
-Run directly for local testing:
-    python main.py | jq .
+Default mode is real-time microphone input:
+    python main.py
 
-When bundled in Tauri the binary is named `seld_pipeline` and Tauri launches
-it as a sidecar.  All AlertNotification objects are written as newline-delimited
-JSON to stdout — no network, no cloud, fully local.
+File input is retained only as a debug/fallback path:
+    python main.py --file tests/assets/test_audio.wav
 
-Press Ctrl+C to stop.
+All events are written as newline-delimited JSON to stdout. Progress logs go to
+stderr so stdout remains machine-readable.
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 # Configure logging to stderr so it does not pollute the stdout JSON feed.
 logging.basicConfig(
@@ -23,12 +25,31 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 
-from pipeline.orchestrator import run
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the local SELD pipeline.")
+    parser.add_argument(
+        "--file",
+        type=Path,
+        help="Debug/fallback mode: process a 16 kHz audio file instead of the mic.",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
+    args = _parse_args()
     try:
-        asyncio.run(run())
+        if args.file is not None:
+            from pipeline.file_runner import run_file
+
+            run_file(args.file)
+        else:
+            from pipeline.orchestrator import run
+
+            logging.getLogger(__name__).info("Starting live microphone mode.")
+            asyncio.run(run())
+    except Exception as exc:
+        logging.getLogger(__name__).error("%s", exc)
+        sys.exit(1)
     except KeyboardInterrupt:
         pass
 

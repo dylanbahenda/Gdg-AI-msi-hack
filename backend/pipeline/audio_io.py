@@ -25,7 +25,7 @@ import time
 import numpy as np
 import sounddevice as sd
 
-from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES
+from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES, WINDOW_SIZE_S
 from contracts.types import RawChunk
 
 _BUF_SIZE = WINDOW_SAMPLES * 4   # 4 seconds of history (64 000 samples)
@@ -98,21 +98,32 @@ async def start() -> asyncio.Queue[RawChunk]:
             audio=stereo_window[:, 0],   # channel-0 mono for SED
             stereo_audio=stereo_window,  # both channels for DOA
             sample_rate=SAMPLE_RATE,
-            timestamp=time.time(),
+            timestamp=time.time() - WINDOW_SIZE_S,
             window_id=_window_id[0],
         )
         _window_id[0] += 1
 
         # Hand off to the asyncio event loop without blocking the audio thread.
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, raw)
-        except asyncio.QueueFull:
-            # Consumer is too slow: drop the oldest item to keep latency low.
+        loop.call_soon_threadsafe(_put_latest, raw)
+
+    def _put_latest(raw: RawChunk) -> None:
+        """
+        Put the newest chunk on the asyncio queue.
+
+        This runs on the event-loop thread. If downstream inference falls
+        behind, stale chunks are discarded so live mode stays live instead of
+        replaying old audio later.
+        """
+        if queue.full():
             try:
                 queue.get_nowait()
-                loop.call_soon_threadsafe(queue.put_nowait, raw)
-            except Exception:
+                queue.task_done()
+            except asyncio.QueueEmpty:
                 pass
+        try:
+            queue.put_nowait(raw)
+        except asyncio.QueueFull:
+            pass
 
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,

@@ -8,3 +8,7 @@ sounddevice>=0.4.6
 torch>=2.2
 torchaudio>=2.2
 soundfile>=0.12
+ollama>=0.3
+timm>=0.9
+einops>=0.7
+nnAudio>=0.3

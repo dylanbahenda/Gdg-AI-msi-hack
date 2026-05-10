@@ -7,12 +7,11 @@ priority is hardcoded from the detected sound class.
 """
 from __future__ import annotations
 
-import ollama
-
 from contracts.types import LLMInput, LLMOutput
 
 _PRIORITIES: dict[str, str] = {
     "baby_cry": "high",
+    "crying": "high",
     "alarm": "high",
     "broken_glass": "high",
     "metal_sound": "medium",
@@ -54,6 +53,8 @@ class LLMReasoner:
         priority = _PRIORITIES.get(input.sound_class, _FALLBACK_PRIORITY)
 
         try:
+            import ollama
+
             response = ollama.chat(
                 model=self._model,
                 messages=[

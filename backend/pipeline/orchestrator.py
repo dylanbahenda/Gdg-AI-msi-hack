@@ -14,9 +14,6 @@ Flow:
 DOA only runs when SED detects a sound event, saving compute on silent
 windows and removing the need for temporal alignment bookkeeping.
 
-Swapping mocks for real models:
-    Change the import lines marked MOCK SWAP below — nothing else changes.
-
 IMPORTANT: this application is fully local.  No network calls of any kind
 are made here or in any module it imports.
 """
@@ -27,7 +24,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from contracts.config import EVENT_GROUPER_FLUSH_INTERVAL_S
+from contracts.config import EVENT_GROUPER_FLUSH_INTERVAL_S, WINDOW_SIZE_S
 from contracts.types import (
     AlertNotification,
     AlignedEvent,
@@ -40,15 +37,14 @@ from contracts.types import (
     SEDOutput,
 )
 
-# ── MOCK SWAP ────────────────────────────────────────────────────────────────
-# SED: swap MockSEDModel → SEDModel (from modules.sed.interface) when ready.
-from modules.sed.mock import MockSEDModel as SEDModel
+# Real model stages. They are instantiated once at startup and reused for every
+# live microphone window.
+from modules.sed.interface import SEDModel
 from modules.llm.interface import LLMReasoner
 
 # DOA: real GCC-PHAT implementation — no mock needed.
 from modules.doa.distance import compute_distance
 from modules.doa.interface import DOAModel
-# ─────────────────────────────────────────────────────────────────────────────
 
 from pipeline import audio_io, event_bus
 from pipeline.event_grouper import EventGrouper, GroupedEvent
@@ -58,6 +54,20 @@ logger = logging.getLogger(__name__)
 # Dedicated thread pool so SED, DOA, and LLM can run without starving each
 # other.  max_workers=4 covers the three model stages with headroom.
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="seld")
+
+
+def _put_latest(queue: asyncio.Queue, item: object) -> None:
+    """Insert item, dropping the oldest queued item if live processing is behind."""
+    if queue.full():
+        try:
+            queue.get_nowait()
+            queue.task_done()
+        except asyncio.QueueEmpty:
+            pass
+    try:
+        queue.put_nowait(item)
+    except asyncio.QueueFull:
+        pass
 
 
 async def _run_sed(
@@ -81,7 +91,7 @@ async def _run_sed(
             _executor, model.detect, sed_input
         )
         if sed_output.detected:
-            await gate_queue.put((sed_output, chunk))
+            _put_latest(gate_queue, (sed_output, chunk))
         raw_queue.task_done()
 
 
@@ -158,7 +168,7 @@ async def _flush_grouper_periodically(
     loop = asyncio.get_running_loop()
     while True:
         await asyncio.sleep(EVENT_GROUPER_FLUSH_INTERVAL_S)
-        for finalized in grouper.flush_stale(now=time.time()):
+        for finalized in grouper.flush_stale(now=time.time() - WINDOW_SIZE_S):
             await _emit_alert_for_group(loop, llm_reasoner, finalized)
 
 
@@ -221,7 +231,7 @@ async def run() -> None:
         """Relay audio chunks from the mic source into the pipeline."""
         while True:
             chunk = await source_queue.get()
-            await raw_queue.put(chunk)
+            _put_latest(raw_queue, chunk)
             source_queue.task_done()
 
     sed_task = asyncio.create_task(
@@ -250,5 +260,3 @@ async def run() -> None:
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-
-
