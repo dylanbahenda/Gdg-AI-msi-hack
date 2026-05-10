@@ -53,8 +53,7 @@ _FALLBACK_MESSAGE = "Sound detected — could not assess urgency"
 _SYSTEM_PROMPT = (
     "/no_think"
     "You are a sound alert system for hearing-impaired users. "
-    "You receive a sound label with optional location info. "
-    "Respond with exactly one short, direct sentence about the SOUND, "
+    "Respond with  one short sentence about the SOUND, "
     "optionally mentioning location. "
     "Rules: under 15 words, no explanations, never say 'I', "
     "no punctuation other than a period, be literal and factual, "
@@ -165,7 +164,6 @@ class LLMReasoner:
 
             user_prompt = (
                 f"sound: {input.sound_class}; "
-                f"direction: {input.doa_direction_of_arrival:.0f}°; "
             )
             response = ollama.chat(
                 model=self._model,
