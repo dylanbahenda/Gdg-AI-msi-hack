@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:demo": "SELD_DEMO_FILE=tests/assets/test_audio.wav tauri dev"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",

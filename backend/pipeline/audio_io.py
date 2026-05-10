@@ -20,22 +20,28 @@ Everything stays fully local — no network I/O of any kind.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 import numpy as np
 import sounddevice as sd
 
-from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES
+from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES, WINDOW_SIZE_S
 from contracts.types import RawChunk
+
+logger = logging.getLogger(__name__)
 
 _BUF_SIZE = WINDOW_SAMPLES * 4   # 4 seconds of history (64 000 samples)
 
 
-async def start() -> asyncio.Queue[RawChunk]:
+async def start() -> tuple[asyncio.Queue[RawChunk], bool]:
     """
     Open the microphone and begin producing RawChunk objects.
 
-    Returns an asyncio.Queue that will receive one RawChunk every HOP_SIZE_S.
+    Returns a tuple of:
+      - asyncio.Queue that will receive one RawChunk every HOP_SIZE_S.
+      - bool: True if the mic fell back to mono (no spatial DOA available).
+
     The caller must keep a reference to the queue and consume it; the producer
     runs as a background asyncio task.
 
@@ -47,8 +53,10 @@ async def start() -> asyncio.Queue[RawChunk]:
 
     hop_samples = int(HOP_SIZE_S * SAMPLE_RATE)
 
-    # Numpy circular ring buffer — avoids per-sample Python object allocation.
-    _buf = np.zeros(_BUF_SIZE, dtype=np.float32)
+    # Stereo numpy ring buffer — shape (BUF_SIZE, 2).
+    # Storing stereo avoids a separate buffer for DOA while keeping SED on
+    # channel-0 mono (extracted when the window is sliced out).
+    _buf = np.zeros((_BUF_SIZE, 2), dtype=np.float32)
     _write_pos: list[int] = [0]
     _total_written: list[int] = [0]
     _window_id: list[int] = [0]
@@ -59,19 +67,24 @@ async def start() -> asyncio.Queue[RawChunk]:
         time_info: object,
         status: sd.CallbackFlags,
     ) -> None:
-        # indata shape: (frames, 1) — view into sounddevice's buffer, no copy.
-        mono = indata[:, 0]
+        # indata shape is either (frames, 2) or (frames, 1). Mono input is
+        # duplicated so the downstream contracts stay stereo-shaped.
+        if indata.shape[1] == 1:
+            frame_data = np.repeat(indata, 2, axis=1)
+        else:
+            frame_data = indata[:, :2]
+
         wp = _write_pos[0]
         end = wp + frames
 
         if end <= _BUF_SIZE:
             # Fast path: no wrap-around.
-            _buf[wp:end] = mono
+            _buf[wp:end] = frame_data
         else:
             # Wrap-around: split the write across the buffer boundary.
             split = _BUF_SIZE - wp
-            _buf[wp:] = mono[:split]
-            _buf[:frames - split] = mono[split:]
+            _buf[wp:] = frame_data[:split]
+            _buf[:frames - split] = frame_data[split:]
 
         _write_pos[0] = end % _BUF_SIZE
         _total_written[0] += frames
@@ -85,44 +98,70 @@ async def start() -> asyncio.Queue[RawChunk]:
         start_idx = (wp - WINDOW_SAMPLES) % _BUF_SIZE
         if start_idx + WINDOW_SAMPLES <= _BUF_SIZE:
             # Contiguous slice — single copy.
-            window = _buf[start_idx:start_idx + WINDOW_SAMPLES].copy()
+            stereo_window = _buf[start_idx:start_idx + WINDOW_SAMPLES].copy()
         else:
             # Wrap-around slice — two copies joined.
             tail_len = _BUF_SIZE - start_idx
-            window = np.empty(WINDOW_SAMPLES, dtype=np.float32)
-            window[:tail_len] = _buf[start_idx:]
-            window[tail_len:] = _buf[:WINDOW_SAMPLES - tail_len]
+            stereo_window = np.empty((WINDOW_SAMPLES, 2), dtype=np.float32)
+            stereo_window[:tail_len] = _buf[start_idx:]
+            stereo_window[tail_len:] = _buf[:WINDOW_SAMPLES - tail_len]
 
         raw = RawChunk(
-            audio=window,
+            audio=stereo_window[:, 0],   # channel-0 mono for SED
+            stereo_audio=stereo_window,  # both channels for DOA
             sample_rate=SAMPLE_RATE,
-            timestamp=time.time(),
+            timestamp=time.time() - WINDOW_SIZE_S,
             window_id=_window_id[0],
         )
         _window_id[0] += 1
 
         # Hand off to the asyncio event loop without blocking the audio thread.
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, raw)
-        except asyncio.QueueFull:
-            # Consumer is too slow: drop the oldest item to keep latency low.
+        loop.call_soon_threadsafe(_put_latest, raw)
+
+    def _put_latest(raw: RawChunk) -> None:
+        """
+        Put the newest chunk on the asyncio queue.
+
+        This runs on the event-loop thread. If downstream inference falls
+        behind, stale chunks are discarded so live mode stays live instead of
+        replaying old audio later.
+        """
+        if queue.full():
             try:
                 queue.get_nowait()
-                loop.call_soon_threadsafe(queue.put_nowait, raw)
-            except Exception:
+                queue.task_done()
+            except asyncio.QueueEmpty:
                 pass
+        try:
+            queue.put_nowait(raw)
+        except asyncio.QueueFull:
+            pass
 
-    stream = sd.InputStream(
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype="float32",
-        blocksize=hop_samples,   # callback fires exactly once per hop
-        callback=_sd_callback,
-    )
+    try:
+        stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=2,
+            dtype="float32",
+            blocksize=hop_samples,   # callback fires exactly once per hop
+            callback=_sd_callback,
+        )
+        is_mono = False
+    except sd.PortAudioError:
+        logger.warning(
+            "Stereo microphone input unavailable; falling back to mono input."
+        )
+        stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+            blocksize=hop_samples,
+            callback=_sd_callback,
+        )
+        is_mono = True
     stream.start()
 
     # Keep the stream alive by storing it on the queue object itself.
     # The caller owns the queue; as long as it is referenced the stream lives.
     queue._sd_stream = stream  # type: ignore[attr-defined]
 
-    return queue
+    return queue, is_mono

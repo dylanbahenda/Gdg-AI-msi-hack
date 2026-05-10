@@ -1,20 +1,27 @@
 """
-Entry point for the SELD pipeline.
+CLI entry point for the SELD pipeline.
 
-Run directly for local testing:
-    python main.py | jq .
+Default mode is real-time microphone input:
+    python main.py
 
-When bundled in Tauri the binary is named `seld_pipeline` and Tauri launches
-it as a sidecar.  All AlertNotification objects are written as newline-delimited
-JSON to stdout — no network, no cloud, fully local.
+File input is retained only as a debug/fallback path:
+    python main.py --file tests/assets/test_audio.wav
 
-Press Ctrl+C to stop.
+Demo mode replays a file at live speed with deterministic fake spatial values:
+    python main.py --demo-file tests/assets/test_audio.wav
+
+All events are written as newline-delimited JSON to stdout. Progress logs go to
+stderr so stdout remains machine-readable.
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
+import json
 import logging
 import sys
+import time
+from pathlib import Path
 
 # Configure logging to stderr so it does not pollute the stdout JSON feed.
 logging.basicConfig(
@@ -23,12 +30,61 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 
-from pipeline.orchestrator import run
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the local SELD pipeline.")
+    parser.add_argument(
+        "--file",
+        type=Path,
+        help="Debug/fallback mode: process a 16 kHz audio file instead of the mic.",
+    )
+    parser.add_argument(
+        "--demo-file",
+        type=Path,
+        help="Demo mode: replay a 16 kHz audio file at live speed with fake DOA/distance.",
+    )
+    parser.add_argument(
+        "--demo-json",
+        type=Path,
+        help="Demo mode: replay pre-canned events from a JSON file with their emit_at timing.",
+    )
+    return parser.parse_args()
+
+
+def replay_demo_json(path: Path) -> None:
+    """Replay events from a demo JSON file, honouring emit_at timings."""
+    events = json.loads(path.read_text())
+    events = sorted(events, key=lambda e: e["emit_at"])
+    start = time.monotonic()
+    for event in events:
+        target = event["emit_at"]
+        elapsed = time.monotonic() - start
+        if target > elapsed:
+            time.sleep(target - elapsed)
+        payload = {k: v for k, v in event.items() if k != "emit_at"}
+        print(json.dumps(payload), flush=True)
 
 
 def main() -> None:
+    args = _parse_args()
     try:
-        asyncio.run(run())
+        if args.demo_json is not None:
+            replay_demo_json(args.demo_json)
+        elif args.demo_file is not None:
+            from pipeline.file_runner import run_file
+
+            run_file(args.demo_file, realtime=True, fake_spatial=True)
+        elif args.file is not None:
+            from pipeline.file_runner import run_file
+
+            run_file(args.file)
+        else:
+            from pipeline.orchestrator import run
+
+            logging.getLogger(__name__).info("Starting live microphone mode.")
+            asyncio.run(run())
+    except Exception as exc:
+        logging.getLogger(__name__).error("%s", exc)
+        sys.exit(1)
     except KeyboardInterrupt:
         pass
 

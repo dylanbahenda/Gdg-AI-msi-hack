@@ -4,17 +4,15 @@ Orchestrator — the main async loop that wires the whole pipeline together.
 Flow:
     audio_io.start()
         │
-        ├─ Task A: for each RawChunk → SEDModel.detect()  → sed_queue
-        ├─ Task B: for each RawChunk → DOAModel.estimate() → doa_queue
-        └─ Task C: alignment.run_alignment(sed_queue, doa_queue, aligned_queue)
-                        │
-                        └─ for each AlignedEvent → LLMReasoner.reason()
-                                                 → AlertNotification
-                                                 → event_bus.emit_alert()
+        └─ Task A: _run_sed       — RawChunk → SEDOutput
+                                    detected windows only → gate_queue
+        │
+        └─ Task B: _run_doa_gate  — (SEDOutput, RawChunk) → DOAOutput
+                                    → LLMOutput → AlertNotification
+                                    → event_bus.emit_alert()
 
-Swapping mocks for real models:
-    Change the three import lines below (marked MOCK SWAP) — nothing else
-    in the pipeline needs to change.
+DOA only runs when SED detects a sound event, saving compute on silent
+windows and removing the need for temporal alignment bookkeeping.
 
 IMPORTANT: this application is fully local.  No network calls of any kind
 are made here or in any module it imports.
@@ -23,179 +21,261 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import numpy as np
+
+from contracts.config import (
+    EVENT_GROUPER_FLUSH_INTERVAL_S,
+    SILENCE_RMS_THRESHOLD,
+    WINDOW_SIZE_S,
+)
 from contracts.types import (
-    AlignedEvent,
     AlertNotification,
+    AlignedEvent,
     DOAInput,
+    DOAOutput,
     LLMInput,
+    LLMOutput,
     RawChunk,
     SEDInput,
+    SEDOutput,
 )
 
-# ── MOCK SWAP ────────────────────────────────────────────────────────────────
-# Dev (mock): comment these three lines out when the real models are ready.
-from modules.sed.mock import MockSEDModel as SEDModel  # noqa: E402
-from modules.doa.mock import MockDOAModel as DOAModel  # noqa: E402
-from modules.llm.mock import MockLLMReasoner as LLMReasoner  # noqa: E402
+# Real model stages. They are instantiated once at startup and reused for every
+# live microphone window.
+from modules.sed.interface import SEDModel
+from modules.llm.interface import LLMReasoner
 
-# Production (real): uncomment these three lines and remove the mock imports.
-# from modules.sed.inference import SEDDetector as SEDModel
-# from modules.doa.interface import DOAModel
-# from modules.llm.interface import LLMReasoner
-# ─────────────────────────────────────────────────────────────────────────────
+# DOA: real GCC-PHAT implementation — no mock needed.
+from modules.doa.distance import compute_distance
+from modules.doa.interface import DOAModel
 
-from pipeline import audio_io, alignment, event_bus
+from pipeline import audio_io, event_bus
+from pipeline.event_grouper import EventGrouper, GroupedEvent
 
 logger = logging.getLogger(__name__)
 
-# Dedicated thread pool: at minimum one thread per CPU-bound model (SED, DOA,
-# LLM) so they can run in parallel without starving each other.  The default
-# executor shares threads with everything else in the process.
+# Dedicated thread pool so SED, DOA, and LLM can run without starving each
+# other.  max_workers=4 covers the three model stages with headroom.
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="seld")
+
+
+def _put_latest(queue: asyncio.Queue, item: object) -> None:
+    """Insert item, dropping the oldest queued item if live processing is behind."""
+    if queue.full():
+        try:
+            queue.get_nowait()
+            queue.task_done()
+        except asyncio.QueueEmpty:
+            pass
+    try:
+        queue.put_nowait(item)
+    except asyncio.QueueFull:
+        pass
 
 
 async def _run_sed(
     raw_queue: asyncio.Queue[RawChunk],
-    sed_queue: asyncio.Queue,
+    gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]],
     model: SEDModel,
     window_times: dict[int, float],
 ) -> None:
-    """Task A — feed every audio chunk through the SED model."""
+    """Run SED on every chunk; forward detected windows to gate_queue.
+
+    Silent-chunk gate: skip the SED forward pass entirely when the mono RMS
+    is below SILENCE_RMS_THRESHOLD. The RMS check costs ~10 µs while the
+    model call costs ~100 ms, so this keeps CPU near zero in quiet rooms.
+    """
     loop = asyncio.get_running_loop()
     while True:
         chunk = await raw_queue.get()
         window_times[chunk.window_id] = time.perf_counter()
+
+        if float(np.sqrt(np.mean(chunk.audio ** 2))) < SILENCE_RMS_THRESHOLD:
+            raw_queue.task_done()
+            continue
+
         sed_input = SEDInput(
             audio_chunk=chunk.audio,
             sample_rate=chunk.sample_rate,
             timestamp=chunk.timestamp,
             window_id=chunk.window_id,
         )
-        # Run blocking inference in the dedicated thread pool.
-        sed_output = await loop.run_in_executor(_executor, model.detect, sed_input)
-        await sed_queue.put(sed_output)
+        sed_output: SEDOutput = await loop.run_in_executor(
+            _executor, model.detect, sed_input
+        )
+        if sed_output.detected:
+            _put_latest(gate_queue, (sed_output, chunk))
         raw_queue.task_done()
 
 
-async def _run_doa(
-    raw_queue: asyncio.Queue[RawChunk],
-    doa_queue: asyncio.Queue,
-    model: DOAModel,
+async def _run_doa_gate(
+    gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]],
+    doa_model: DOAModel,
+    llm_reasoner: LLMReasoner,
+    grouper: EventGrouper,
+    window_times: dict[int, float],
 ) -> None:
-    """Task B — feed every audio chunk through the DOA model."""
+    """
+    For each SED-detected window:
+      1. run DOA,
+      2. emit a per-window AlignedEvent on the raw-events channel,
+      3. feed it to the grouper; for any event the grouper finalises,
+         run LLM and emit an AlertNotification.
+    """
     loop = asyncio.get_running_loop()
     while True:
-        chunk = await raw_queue.get()
+        sed_output, chunk = await gate_queue.get()
+
         doa_input = DOAInput(
-            audio_chunk=chunk.audio,
+            audio_chunk=chunk.stereo_audio,
             sample_rate=chunk.sample_rate,
             timestamp=chunk.timestamp,
             window_id=chunk.window_id,
         )
-        doa_output = await loop.run_in_executor(_executor, model.estimate, doa_input)
-        await doa_queue.put(doa_output)
-        raw_queue.task_done()
-
-
-async def _run_llm(
-    aligned_queue: asyncio.Queue[AlignedEvent],
-    reasoner: LLMReasoner,
-    window_times: dict[int, float],
-) -> None:
-    """Consume AlignedEvents, run LLM reasoning, emit AlertNotifications."""
-    loop = asyncio.get_running_loop()
-    while True:
-        event = await aligned_queue.get()
-        llm_input = LLMInput(
-            sound_class=event.sound_class,
-            sed_confidence=event.sed_confidence,
-            doa_direction_of_arrival=event.doa_direction_of_arrival,
-            doa_distance_estimation=event.doa_distance_estimation,
+        doa_output: DOAOutput = await loop.run_in_executor(
+            _executor, doa_model.estimate, doa_input
         )
-        try:
-            llm_output = await loop.run_in_executor(_executor, reasoner.reason, llm_input)
-        except Exception:
-            from contracts.types import LLMOutput
-            llm_output = LLMOutput(
-                priority="medium",
-                message="Sound detected — could not assess urgency",
-            )
 
-        notification = AlertNotification(
-            timestamp=event.timestamp,
-            sound_class=event.sound_class,
-            direction_of_arrival=event.doa_direction_of_arrival,
-            distance_estimation=event.doa_distance_estimation,
-            sed_confidence=event.sed_confidence,
-            priority=llm_output.priority,
-            message=llm_output.message,
+        # Class-conditional distance: DOA's standalone estimate is class-agnostic
+        # and would systematically miss for loud (scream) or quiet (clap) sources.
+        # Now that SED's class is known, recompute using the per-class reference.
+        distance_m = round(
+            compute_distance(
+                event_rms=doa_output.event_rms,
+                coherence=doa_output.coherence,
+                sound_class=sed_output.sound_class,
+            ),
+            2,
         )
-        # Log end-to-end latency for this window.
-        start = window_times.pop(event.window_id, None)
+
+        aligned = AlignedEvent(
+            window_id=chunk.window_id,
+            timestamp=sed_output.timestamp,
+            sound_class=sed_output.sound_class,
+            sed_confidence=sed_output.confidence,
+            doa_direction_of_arrival=doa_output.direction_of_arrival,
+            doa_distance_estimation=distance_m,
+        )
+
+        # Granular feed — every detected window. Drives the radar UI.
+        event_bus.emit_raw_event(aligned)
+
+        # Group same-class detections within the sensitivity window.
+        for finalized in grouper.add(aligned):
+            await _emit_alert_for_group(loop, llm_reasoner, finalized)
+
+        start = window_times.pop(chunk.window_id, None)
         if start is not None:
             latency_ms = (time.perf_counter() - start) * 1000
             logger.debug(
                 "window %d | %s | latency %.1f ms",
-                event.window_id, event.sound_class, latency_ms,
+                chunk.window_id, sed_output.sound_class, latency_ms,
             )
-        event_bus.emit_alert(notification)
-        aligned_queue.task_done()
+        gate_queue.task_done()
+
+
+async def _flush_grouper_periodically(
+    grouper: EventGrouper, llm_reasoner: LLMReasoner
+) -> None:
+    """Emit any pending groups whose last detection has aged past the tolerance."""
+    loop = asyncio.get_running_loop()
+    while True:
+        await asyncio.sleep(EVENT_GROUPER_FLUSH_INTERVAL_S)
+        for finalized in grouper.flush_stale(now=time.time() - WINDOW_SIZE_S):
+            await _emit_alert_for_group(loop, llm_reasoner, finalized)
+
+
+async def _emit_alert_for_group(
+    loop: asyncio.AbstractEventLoop,
+    llm_reasoner: LLMReasoner,
+    grouped: GroupedEvent,
+) -> None:
+    """Run LLM on a finalised group and emit one AlertNotification."""
+    llm_input = LLMInput(
+        sound_class=grouped.sound_class,
+        sed_confidence=grouped.sed_confidence,
+        doa_direction_of_arrival=grouped.direction_of_arrival,
+        doa_distance_estimation=grouped.distance_estimation,
+    )
+    try:
+        llm_output: LLMOutput = await loop.run_in_executor(
+            _executor, llm_reasoner.reason, llm_input
+        )
+    except Exception:
+        llm_output = LLMOutput(
+            priority="medium",
+            message="Sound detected — could not assess urgency",
+        )
+
+    event_bus.emit_alert(
+        AlertNotification(
+            timestamp=grouped.timestamp,
+            sound_class=grouped.sound_class,
+            direction_of_arrival=grouped.direction_of_arrival,
+            distance_estimation=grouped.distance_estimation,
+            sed_confidence=grouped.sed_confidence,
+            priority=llm_output.priority,
+            message=llm_output.message,
+            duration_s=grouped.duration_s,
+            window_count=grouped.window_count,
+        )
+    )
 
 
 async def run() -> None:
     """
     Start the full pipeline and run until cancelled or interrupted.
 
-    The three model instances are created here — once at startup,
-    never per-window.
+    Model instances are created once at startup, never per-window.
     """
     sed_model = SEDModel()
     doa_model = DOAModel()
     llm_reasoner = LLMReasoner()
+    grouper = EventGrouper()
 
-    # Shared latency tracker: window_id → perf_counter() when chunk first entered pipeline.
     window_times: dict[int, float] = {}
 
-    # Bounded queues prevent unbounded memory growth if a stage falls behind.
-    sed_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
-    doa_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
-    aligned_queue: asyncio.Queue[AlignedEvent] = asyncio.Queue(maxsize=64)
-    sed_raw_queue: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
-    doa_raw_queue: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
+    raw_queue: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
+    gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]] = asyncio.Queue(maxsize=64)
 
-    source_queue = await audio_io.start()
+    source_queue, is_mono = await audio_io.start()
+    event_bus.emit_system_info(is_mono)
+    if is_mono:
+        logger.info("Running in mono mode — DOA/spatial data unavailable.")
 
-    async def _fan_out() -> None:
-        """Copy each RawChunk from the mic source to both SED and DOA queues."""
+    async def _relay() -> None:
+        """Relay audio chunks from the mic source into the pipeline."""
         while True:
             chunk = await source_queue.get()
-            for q in (sed_raw_queue, doa_raw_queue):
-                try:
-                    q.put_nowait(chunk)
-                except asyncio.QueueFull:
-                    logger.warning("Queue full for window %d — dropping chunk", chunk.window_id)
+            _put_latest(raw_queue, chunk)
             source_queue.task_done()
 
-    tasks = [
-        asyncio.create_task(_fan_out(), name="fan_out"),
-        asyncio.create_task(_run_sed(sed_raw_queue, sed_queue, sed_model, window_times), name="sed"),
-        asyncio.create_task(_run_doa(doa_raw_queue, doa_queue, doa_model), name="doa"),
-        asyncio.create_task(
-            alignment.run_alignment(sed_queue, doa_queue, aligned_queue),
-            name="alignment",
+    sed_task = asyncio.create_task(
+        _run_sed(raw_queue, gate_queue, sed_model, window_times), name="sed"
+    )
+    doa_task = asyncio.create_task(
+        _run_doa_gate(
+            gate_queue, doa_model, llm_reasoner, grouper, window_times
         ),
-        asyncio.create_task(_run_llm(aligned_queue, llm_reasoner, window_times), name="llm"),
-    ]
+        name="doa_gate",
+    )
+    flush_task = asyncio.create_task(
+        _flush_grouper_periodically(grouper, llm_reasoner), name="flusher"
+    )
+    relay_task = asyncio.create_task(_relay(), name="relay")
 
-    logger.info("SELD pipeline started (mock mode)")
+    tasks = (relay_task, sed_task, doa_task, flush_task)
     try:
         await asyncio.gather(*tasks)
-    except asyncio.CancelledError:
-        logger.info("Pipeline shutting down")
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        logger.info("Pipeline interrupted — shutting down.")
+        # Drain any remaining pending groups before exit.
+        loop = asyncio.get_running_loop()
+        for finalized in grouper.flush_all():
+            await _emit_alert_for_group(loop, llm_reasoner, finalized)
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

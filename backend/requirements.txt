@@ -1,10 +1,35 @@
-# SELD Pipeline — Python dependencies
+# SELD Pipeline — slim inference dependencies.
 #
-# All inference runs locally.  No cloud SDKs, no API client libraries.
-# Install with:  pip install -r requirements.txt
+# Audited against actual imports on the inference path. The upstream
+# PretrainedSED/requirements.txt is for *training* and pulls ~700 MB of unused
+# libraries (lightning, transformers, datasets, wandb, h5py, etc.). This file
+# lists only what's imported at inference time.
+#
+# Fresh install:
+#   pip install -r backend/requirements.txt
+#
+# To clean an existing venv that already has the upstream training packages:
+#   bash backend/scripts/prune_deps.sh
 
+# Numerical
 numpy>=1.26,<2
-sounddevice>=0.4.6
+scipy>=1.11                 # only used by backend/scripts/record_audio.py
+
+# PyTorch (CPU on most laptops; MPS on Apple Silicon)
 torch>=2.2
 torchaudio>=2.2
-soundfile>=0.12
+
+# PretrainedSED M2D encoder deps
+einops>=0.7
+timm>=0.9
+nnAudio>=0.3
+
+# Audio I/O
+sounddevice>=0.4.6          # microphone input
+soundfile>=0.12             # WAV/FLAC/OGG decode + write
+librosa>=0.10               # m4a/mp3 loading via audioread+PyAV
+av>=10.0                    # PyAV — bundled ffmpeg libs (no system ffmpeg needed)
+
+# LLM client — required. If Ollama is unreachable, LLMReasoner returns its
+# own fallback message ("Sound detected — could not assess urgency").
+ollama>=0.3

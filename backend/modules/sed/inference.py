@@ -27,7 +27,7 @@ class SEDDetector:
         encoder: str = "M2D",
         device: str = "cpu",
         detection_threshold: float = 0.1,
-        window_size_seconds: float = 10.0,
+        window_size_seconds: float = 2.0,
         repo_path: Path | str | None = None,
         checkpoint_dir: Path | str | None = None,
     ):
@@ -51,6 +51,11 @@ class SEDDetector:
             )
             for macro, sources in MACRO_TO_SOURCES.items()
         }
+
+        # Warm-up: one silent forward pass so PyTorch compiles all CPU kernels
+        # now (during the loading screen) instead of on the first real audio
+        # chunk, which would freeze the UI for several seconds.
+        self._model.forward(torch.zeros(1, self._window_samples))
 
     def detect(self, input: SEDInput) -> SEDOutput:
         if input.sample_rate != _TARGET_SAMPLE_RATE:

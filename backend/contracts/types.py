@@ -27,10 +27,11 @@ Priority = Literal["low", "medium", "high"]
 @dataclass
 class RawChunk:
     """A single sliding-window audio chunk produced by audio_io."""
-    audio: np.ndarray   # float32, shape (WINDOW_SAMPLES,)
-    sample_rate: int    # always 16000
-    timestamp: float    # unix epoch of the START of this window
-    window_id: int      # monotonically increasing, starts at 0
+    audio: np.ndarray         # float32, shape (WINDOW_SAMPLES,)  — channel 0 mono, for SED
+    stereo_audio: np.ndarray  # float32, shape (WINDOW_SAMPLES, 2) — both channels, for DOA
+    sample_rate: int          # always 16000
+    timestamp: float          # unix epoch of the START of this window
+    window_id: int            # monotonically increasing, starts at 0
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +61,7 @@ class SEDOutput:
 
 @dataclass
 class DOAInput:
-    audio_chunk: np.ndarray   # float32, shape (n_samples,) — same chunk as SED
+    audio_chunk: np.ndarray   # float32, shape (n_samples, 2) — stereo, channels 0 and 1
     sample_rate: int           # always 16000 Hz
     timestamp: float           # unix epoch of the START of this chunk
     window_id: int             # same window_id as the paired SEDInput
@@ -71,7 +72,13 @@ class DOAOutput:
     window_id: int             # must match the input window_id
     timestamp: float           # echo from input
     direction_of_arrival: float   # 0–359.9°, clockwise from front
-    distance_estimation: float    # estimated metres
+    distance_estimation: float    # estimated metres (class-agnostic best effort;
+                                  # the orchestrator overrides this with the
+                                  # class-conditional value once SED has run)
+    # Raw measurements that let the orchestrator recompute distance once SED's
+    # class is known. Defaulted for backward compatibility.
+    event_rms: float = 0.0     # p95 RMS amplitude over the chunk
+    coherence: float = 0.0     # GCC-PHAT peak height [-1, 1]
 
 
 # ---------------------------------------------------------------------------
@@ -112,10 +119,12 @@ class LLMOutput:
 
 @dataclass
 class AlertNotification:
-    timestamp: float
+    timestamp: float              # start of the merged event
     sound_class: SoundClass
-    direction_of_arrival: float   # degrees, 0–359.9
-    distance_estimation: float    # metres
-    sed_confidence: float         # 0.0–1.0
+    direction_of_arrival: float   # degrees, 0–359.9 (confidence-weighted circular mean)
+    distance_estimation: float    # metres (confidence-weighted mean)
+    sed_confidence: float         # 0.0–1.0 (max across merged windows)
     priority: Priority
     message: str                  # max 80 chars
+    duration_s: float = 0.0       # span of the merged event in seconds
+    window_count: int = 1         # number of raw windows merged into this event

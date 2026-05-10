@@ -1,0 +1,74 @@
+import { useEffect } from "react";
+import { motion } from "framer-motion";
+import { AlertNotification, Priority } from "../types/contracts";
+import { soundEmoji, soundImage, soundLabel } from "../utils/soundMeta";
+
+const PRIORITY_HEX: Record<Priority, string> = {
+  high:   "#ff385c",
+  medium: "#f97316",
+  low:    "#16a34a",
+};
+
+const TOAST_DURATION_MS = 5000;
+
+interface Props {
+  alert: AlertNotification;
+  onDismiss: () => void;
+  isMono?: boolean;
+}
+
+export default function AlertToast({ alert, onDismiss, isMono = false }: Props) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, TOAST_DURATION_MS);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+
+  const color = PRIORITY_HEX[alert.priority];
+  const img = soundImage(alert.sound_class);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -16 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 16 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
+      style={{
+        border: `3px solid ${color}`,
+        borderRadius: 16,
+        boxShadow: `0 0 0 1px ${color}22, rgba(0,0,0,0.08) 0 4px 16px, rgba(0,0,0,0.12) 0 8px 24px`,
+        fontFamily: "'Child Writing', 'Inter', -apple-system, system-ui, sans-serif",
+      }}
+      className="bg-white px-4 py-3 w-[272px]"
+    >
+      {/* Icon + name row */}
+      <div className="flex items-center gap-2 mb-1.5">
+        {img ? (
+          <img
+            src={img}
+            alt={soundLabel(alert.sound_class)}
+            style={{ width: 36, height: 36, objectFit: "contain", borderRadius: 8, flexShrink: 0 }}
+          />
+        ) : (
+          <span className="text-[22px] leading-none select-none" aria-hidden="true">
+            {soundEmoji(alert.sound_class)}
+          </span>
+        )}
+        <span className="text-[14px] font-semibold text-[#222222] capitalize leading-tight">
+          {soundLabel(alert.sound_class)}
+        </span>
+      </div>
+
+      {/* LLM message */}
+      <p className="text-[13px] text-[#3f3f3f] leading-snug mb-2">
+        {alert.message}
+      </p>
+
+      {/* Distance / direction — hidden in mono (1-channel) mode */}
+      {!isMono && (
+        <p className="text-[11px] text-[#6a6a6a] font-mono">
+          {alert.distance_estimation.toFixed(1)} m &middot; {alert.direction_of_arrival.toFixed(0)}&deg;
+        </p>
+      )}
+    </motion.div>
+  );
+}

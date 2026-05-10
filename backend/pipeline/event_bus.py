@@ -20,19 +20,46 @@ import json
 import sys
 from dataclasses import asdict
 
-from contracts.types import AlertNotification
+from contracts.types import AlertNotification, AlignedEvent
 
 
 def emit_alert(notification: AlertNotification) -> None:
     """
     Serialise an AlertNotification as a single JSON line to stdout.
 
+    Channel: ``{"channel": "alert", ...AlertNotification fields...}``.
+
     flush=True is critical: without it Python buffers stdout and the Tauri
     sidecar may never see the line until the buffer is full.
     """
-    payload = asdict(notification)
-    # numpy float32 values are not JSON-serialisable by default; cast to plain
-    # Python floats so json.dumps never raises.
+    _emit("alert", notification)
+
+
+def emit_raw_event(event: AlignedEvent) -> None:
+    """
+    Serialise a single per-window AlignedEvent as a JSON line.
+
+    This is the granular feed: every detected window goes through here, even
+    if the grouper later merges it into a single AlertNotification. The radar
+    UI (and any movement / heat-map view) consumes this stream.
+
+    Channel: ``{"channel": "raw_event", ...AlignedEvent fields...}``.
+    """
+    _emit("raw_event", event)
+
+
+def emit_system_info(mono_fallback: bool) -> None:
+    """
+    Emit a one-shot system capability event at pipeline startup.
+
+    Tells the UI whether DOA/spatial data is available.
+    Channel: ``{"channel": "system_info", "mono_fallback": true|false}``.
+    """
+    print(json.dumps({"channel": "system_info", "mono_fallback": mono_fallback}), flush=True)
+
+
+def _emit(channel: str, payload_obj: object) -> None:
+    payload = {"channel": channel, **asdict(payload_obj)}  # type: ignore[arg-type]
     payload = _make_json_safe(payload)
     print(json.dumps(payload), flush=True)
 

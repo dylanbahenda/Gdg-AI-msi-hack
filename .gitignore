@@ -19,6 +19,10 @@ env/
 backend/dist/
 backend/build/
 backend/*.spec
+dist-sidecar/
+build-sidecar/
+seld-pipeline.spec
+frontend/src-tauri/binaries/
 
 # ── Node / npm ────────────────────────────────────────────────────────────────
 node_modules/
@@ -70,6 +74,8 @@ models/
 .claude/
 third_party/
 resources/
+backend/third_party
+backend/resources
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.log

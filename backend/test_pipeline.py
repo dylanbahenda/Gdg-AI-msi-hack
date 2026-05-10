@@ -1,10 +1,11 @@
 """
-Pipeline integration test — runs the full mock pipeline without a microphone.
+Pipeline integration test — exercises the SED→DOA pipeline end-to-end
+without a microphone.
 
-Instead of opening the mic, this script generates synthetic RawChunk objects
-at the configured hop rate and feeds them directly into the orchestrator
-queues.  Everything else (SED mock, DOA mock, alignment, LLM mock, event bus)
-runs exactly as it would in production.
+Synthetic stereo audio (white noise with slight channel asymmetry) is fed
+through MockSEDModel and the real GCC-PHAT DOAModel.  When SED detects a
+sound event the DOA angle and distance are computed from the same audio
+window and an AlertNotification is emitted to stdout as JSON.
 
 Usage:
     cd backend
@@ -36,52 +37,55 @@ logging.basicConfig(
 )
 
 from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES
+from contracts.config import EVENT_GROUPER_FLUSH_INTERVAL_S, SILENCE_RMS_THRESHOLD
 from contracts.types import (
-    AlignedEvent,
     AlertNotification,
+    AlignedEvent,
     DOAInput,
+    DOAOutput,
     LLMInput,
     LLMOutput,
     RawChunk,
     SEDInput,
+    SEDOutput,
 )
-from modules.doa.mock import MockDOAModel
-from modules.llm.mock import MockLLMReasoner
+from modules.doa.distance import compute_distance
+from modules.doa.interface import DOAModel
+from modules.llm.interface import LLMReasoner
 from modules.sed.mock import MockSEDModel
-from pipeline import alignment, event_bus
+from pipeline import event_bus
+from pipeline.event_grouper import EventGrouper, GroupedEvent
 
 # Same dedicated executor as the production orchestrator.
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="seld_test")
 
 
 async def _synthetic_audio_producer(
-    sed_raw: asyncio.Queue[RawChunk],
-    doa_raw: asyncio.Queue[RawChunk],
+    raw_queue: asyncio.Queue[RawChunk],
     num_windows: int,
     window_start_times: dict[int, float],
 ) -> None:
     """
-    Emit `num_windows` synthetic RawChunks at the real hop rate.
+    Emit `num_windows` synthetic stereo RawChunks at the real hop rate.
 
-    Audio is white noise in [-1, 1] — shape and dtype match what the real mic
-    produces, so the mocks receive correctly-shaped arrays.
+    Audio is white noise in [-1, 1] with a slight amplitude difference
+    between channels — this gives GCC-PHAT a non-trivial signal to work with.
     """
     log = logging.getLogger("producer")
     for window_id in range(num_windows):
-        audio = np.random.uniform(-1.0, 1.0, WINDOW_SAMPLES).astype(np.float32)
+        mono = np.random.uniform(-1.0, 1.0, WINDOW_SAMPLES).astype(np.float32)
+        # Small amplitude offset between channels simulates a sound source
+        # slightly off-centre, so DOA can estimate a non-zero angle.
+        stereo = np.stack([mono, mono * 0.85], axis=1)
         chunk = RawChunk(
-            audio=audio,
+            audio=mono,
+            stereo_audio=stereo,
             sample_rate=SAMPLE_RATE,
             timestamp=time.time(),
             window_id=window_id,
         )
-        # Record the exact moment this chunk enters the pipeline.
         window_start_times[window_id] = time.perf_counter()
-
-        # Fan-out: both SED and DOA get the same chunk reference.
-        await sed_raw.put(chunk)
-        await doa_raw.put(chunk)
-
+        await raw_queue.put(chunk)
         log.debug("Emitted window %d", window_id)
         await asyncio.sleep(HOP_SIZE_S)   # real-time pacing
 
@@ -90,108 +94,177 @@ async def _synthetic_audio_producer(
 
 async def _run_sed(
     raw_queue: asyncio.Queue[RawChunk],
-    sed_queue: asyncio.Queue,
+    gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]],
     model: MockSEDModel,
 ) -> None:
+    """Run SED on every chunk; forward detected windows to gate_queue.
+
+    Silent-chunk gate: skip the SED model call when mono RMS is below
+    SILENCE_RMS_THRESHOLD — keeps the test honest under quiet inputs.
+    """
     loop = asyncio.get_running_loop()
     while True:
         chunk = await raw_queue.get()
+
+        if float(np.sqrt(np.mean(chunk.audio ** 2))) < SILENCE_RMS_THRESHOLD:
+            raw_queue.task_done()
+            continue
+
         sed_input = SEDInput(
             audio_chunk=chunk.audio,
             sample_rate=chunk.sample_rate,
             timestamp=chunk.timestamp,
             window_id=chunk.window_id,
         )
-        result = await loop.run_in_executor(_executor, model.detect, sed_input)
-        await sed_queue.put(result)
-        raw_queue.task_done()
-
-
-async def _run_doa(
-    raw_queue: asyncio.Queue[RawChunk],
-    doa_queue: asyncio.Queue,
-    model: MockDOAModel,
-) -> None:
-    loop = asyncio.get_running_loop()
-    while True:
-        chunk = await raw_queue.get()
-        doa_input = DOAInput(
-            audio_chunk=chunk.audio,
-            sample_rate=chunk.sample_rate,
-            timestamp=chunk.timestamp,
-            window_id=chunk.window_id,
+        sed_output: SEDOutput = await loop.run_in_executor(
+            _executor, model.detect, sed_input
         )
-        result = await loop.run_in_executor(_executor, model.estimate, doa_input)
-        await doa_queue.put(result)
+        if sed_output.detected:
+            await gate_queue.put((sed_output, chunk))
         raw_queue.task_done()
 
 
-async def _run_llm(
-    aligned_queue: asyncio.Queue[AlignedEvent],
-    reasoner: MockLLMReasoner,
+async def _run_doa_gate(
+    gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]],
+    doa_model: DOAModel,
+    llm_reasoner: LLMReasoner,
+    grouper: EventGrouper,
     alert_count: list[int],
     latencies_ms: list[float],
     window_start_times: dict[int, float],
 ) -> None:
+    """
+    For each SED-detected window: run DOA, emit raw event, feed grouper.
+    The grouper finalises events; LLM runs once per finalised group.
+    """
     loop = asyncio.get_running_loop()
-    log = logging.getLogger("llm")
+    log = logging.getLogger("doa_gate")
     while True:
-        event = await aligned_queue.get()
-        llm_input = LLMInput(
-            sound_class=event.sound_class,
-            sed_confidence=event.sed_confidence,
-            doa_direction_of_arrival=event.doa_direction_of_arrival,
-            doa_distance_estimation=event.doa_distance_estimation,
-        )
-        try:
-            llm_output = await loop.run_in_executor(_executor, reasoner.reason, llm_input)
-        except Exception:
-            llm_output = LLMOutput(
-                priority="medium",
-                message="Sound detected — could not assess urgency",
-            )
+        sed_output, chunk = await gate_queue.get()
 
-        notification = AlertNotification(
-            timestamp=event.timestamp,
-            sound_class=event.sound_class,
-            direction_of_arrival=event.doa_direction_of_arrival,
-            distance_estimation=event.doa_distance_estimation,
-            sed_confidence=event.sed_confidence,
-            priority=llm_output.priority,
-            message=llm_output.message,
+        doa_input = DOAInput(
+            audio_chunk=chunk.stereo_audio,
+            sample_rate=chunk.sample_rate,
+            timestamp=chunk.timestamp,
+            window_id=chunk.window_id,
+        )
+        doa_output: DOAOutput = await loop.run_in_executor(
+            _executor, doa_model.estimate, doa_input
         )
 
-        # Measure end-to-end latency for this window.
-        start = window_start_times.pop(event.window_id, None)
+        # Class-conditional distance: see orchestrator.py for rationale.
+        distance_m = round(
+            compute_distance(
+                event_rms=doa_output.event_rms,
+                coherence=doa_output.coherence,
+                sound_class=sed_output.sound_class,
+            ),
+            2,
+        )
+
+        aligned = AlignedEvent(
+            window_id=chunk.window_id,
+            timestamp=sed_output.timestamp,
+            sound_class=sed_output.sound_class,
+            sed_confidence=sed_output.confidence,
+            doa_direction_of_arrival=doa_output.direction_of_arrival,
+            doa_distance_estimation=distance_m,
+        )
+        event_bus.emit_raw_event(aligned)
+        log.info(
+            "raw window %-3d | %-13s | conf=%.2f | dir=%5.1f° dist=%.2fm",
+            chunk.window_id,
+            sed_output.sound_class,
+            sed_output.confidence,
+            doa_output.direction_of_arrival,
+            distance_m,
+        )
+
+        for finalized in grouper.add(aligned):
+            await _emit_alert_for_group(loop, llm_reasoner, finalized, alert_count, log)
+
+        start = window_start_times.pop(chunk.window_id, None)
         if start is not None:
-            latency_ms = (time.perf_counter() - start) * 1000
-            latencies_ms.append(latency_ms)
-            log.info(
-                "window %-3d | %-13s | priority=%-6s | latency=%.2f ms",
-                event.window_id, event.sound_class, llm_output.priority, latency_ms,
-            )
+            latencies_ms.append((time.perf_counter() - start) * 1000)
 
-        event_bus.emit_alert(notification)
-        alert_count[0] += 1
-        aligned_queue.task_done()
+        gate_queue.task_done()
+
+
+async def _flush_grouper_periodically(
+    grouper: EventGrouper,
+    llm_reasoner: LLMReasoner,
+    alert_count: list[int],
+) -> None:
+    log = logging.getLogger("flusher")
+    loop = asyncio.get_running_loop()
+    while True:
+        await asyncio.sleep(EVENT_GROUPER_FLUSH_INTERVAL_S)
+        for finalized in grouper.flush_stale(now=time.time()):
+            await _emit_alert_for_group(loop, llm_reasoner, finalized, alert_count, log)
+
+
+async def _emit_alert_for_group(
+    loop: asyncio.AbstractEventLoop,
+    llm_reasoner: LLMReasoner,
+    grouped: GroupedEvent,
+    alert_count: list[int],
+    log: logging.Logger,
+) -> None:
+    llm_input = LLMInput(
+        sound_class=grouped.sound_class,
+        sed_confidence=grouped.sed_confidence,
+        doa_direction_of_arrival=grouped.direction_of_arrival,
+        doa_distance_estimation=grouped.distance_estimation,
+    )
+    try:
+        llm_output: LLMOutput = await loop.run_in_executor(
+            _executor, llm_reasoner.reason, llm_input
+        )
+    except Exception:
+        llm_output = LLMOutput(
+            priority="medium",
+            message="Sound detected — could not assess urgency",
+        )
+
+    notification = AlertNotification(
+        timestamp=grouped.timestamp,
+        sound_class=grouped.sound_class,
+        direction_of_arrival=grouped.direction_of_arrival,
+        distance_estimation=grouped.distance_estimation,
+        sed_confidence=grouped.sed_confidence,
+        priority=llm_output.priority,
+        message=llm_output.message,
+        duration_s=grouped.duration_s,
+        window_count=grouped.window_count,
+    )
+    event_bus.emit_alert(notification)
+    alert_count[0] += 1
+    log.info(
+        "ALERT  | %-13s | conf=%.2f | dir=%5.1f° dist=%.2fm | dur=%.2fs | n=%d | %s",
+        grouped.sound_class,
+        grouped.sed_confidence,
+        grouped.direction_of_arrival,
+        grouped.distance_estimation,
+        grouped.duration_s,
+        grouped.window_count,
+        llm_output.priority,
+    )
 
 
 async def run_test(num_windows: int = 30) -> None:
     """
-    Run the mock pipeline for `num_windows` windows.
+    Run the SED-gated DOA pipeline for `num_windows` synthetic audio windows.
 
     At 0.5 s/hop that is 15 seconds of simulated audio, which should
-    produce ~5 AlertNotification events (one every ~3 s).
+    produce ~5 AlertNotification events (one every ~3 s from the mock SED).
     """
     sed_model = MockSEDModel()
-    doa_model = MockDOAModel()
-    llm_reasoner = MockLLMReasoner()
+    doa_model = DOAModel()
+    llm_reasoner = LLMReasoner()
+    grouper = EventGrouper()
 
-    sed_raw: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
-    doa_raw: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
-    sed_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
-    doa_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
-    aligned_queue: asyncio.Queue[AlignedEvent] = asyncio.Queue(maxsize=64)
+    raw_queue: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
+    gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]] = asyncio.Queue(maxsize=64)
 
     alert_count: list[int] = [0]
     latencies_ms: list[float] = []
@@ -199,45 +272,57 @@ async def run_test(num_windows: int = 30) -> None:
 
     log = logging.getLogger("test")
     log.info(
-        "Starting mock pipeline — %d windows at %.1f s/hop = %.0f s simulated audio",
+        "Starting SED→DOA pipeline — %d windows at %.1f s/hop = %.0f s simulated audio",
         num_windows, HOP_SIZE_S, num_windows * HOP_SIZE_S,
     )
+    log.info("SED: mock (fires ~every 6 windows).  DOA: real GCC-PHAT.")
     log.info("Expecting ~%d alerts.  JSON output on stdout.", num_windows // 6)
 
     producer_task = asyncio.create_task(
-        _synthetic_audio_producer(sed_raw, doa_raw, num_windows, window_start_times),
+        _synthetic_audio_producer(raw_queue, num_windows, window_start_times),
         name="producer",
     )
-    sed_task   = asyncio.create_task(_run_sed(sed_raw,  sed_queue,  sed_model),  name="sed")
-    doa_task   = asyncio.create_task(_run_doa(doa_raw,  doa_queue,  doa_model),  name="doa")
-    align_task = asyncio.create_task(
-        alignment.run_alignment(sed_queue, doa_queue, aligned_queue), name="alignment",
+    sed_task = asyncio.create_task(
+        _run_sed(raw_queue, gate_queue, sed_model), name="sed"
     )
-    llm_task   = asyncio.create_task(
-        _run_llm(aligned_queue, llm_reasoner, alert_count, latencies_ms, window_start_times),
-        name="llm",
+    doa_task = asyncio.create_task(
+        _run_doa_gate(
+            gate_queue, doa_model, llm_reasoner, grouper,
+            alert_count, latencies_ms, window_start_times,
+        ),
+        name="doa_gate",
+    )
+    flush_task = asyncio.create_task(
+        _flush_grouper_periodically(grouper, llm_reasoner, alert_count),
+        name="flusher",
     )
 
     await producer_task
     log.info("Producer done — draining pipeline…")
-    await asyncio.sleep(1.0)   # give alignment its 200 ms timeout budget to flush
+    # Give the grouper enough time to age out final pending events.
+    await asyncio.sleep(EVENT_GROUPER_FLUSH_INTERVAL_S * 3)
 
-    for t in (sed_task, doa_task, align_task, llm_task):
+    # Flush anything still pending at shutdown.
+    loop = asyncio.get_running_loop()
+    for finalized in grouper.flush_all():
+        await _emit_alert_for_group(loop, llm_reasoner, finalized, alert_count, log)
+
+    for t in (sed_task, doa_task, flush_task):
         t.cancel()
-    await asyncio.gather(sed_task, doa_task, align_task, llm_task, return_exceptions=True)
+    await asyncio.gather(sed_task, doa_task, flush_task, return_exceptions=True)
 
-    # ── Latency summary ────────────────────────────────────────────────────
-    log.info("─" * 55)
+    # ── Summary ────────────────────────────────────────────────────────────
+    log.info("─" * 60)
     log.info("Test complete.  Total alerts emitted: %d", alert_count[0])
     if latencies_ms:
         log.info(
-            "End-to-end latency (chunk-in → alert-out):  "
-            "min=%.2f ms  avg=%.2f ms  max=%.2f ms",
+            "End-to-end latency (chunk-in → alert-out):"
+            "  min=%.1f ms  avg=%.1f ms  max=%.1f ms",
             min(latencies_ms),
             sum(latencies_ms) / len(latencies_ms),
             max(latencies_ms),
         )
-    log.info("─" * 55)
+    log.info("─" * 60)
 
 
 if __name__ == "__main__":

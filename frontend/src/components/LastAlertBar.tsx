@@ -1,4 +1,5 @@
 import { AlertNotification, Priority } from "../types/contracts";
+import { soundEmoji } from "../utils/soundMeta";
 
 const PRIORITY_HEX: Record<Priority, string> = {
   high:   "#ff385c",
@@ -39,6 +40,7 @@ export default function LastAlertBar({ alert }: Props) {
         >
           ● {alert.priority}
         </span>
+        <span className="text-[16px] leading-none" aria-hidden="true">{soundEmoji(alert.sound_class)}</span>
         <span className="text-[13px] text-[#3f3f3f] truncate">{alert.message}</span>
         <span className="text-[12px] text-[#6a6a6a] font-mono ml-auto shrink-0">· {formatTime(alert.timestamp)}</span>
       </div>

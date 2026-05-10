@@ -1,232 +1,333 @@
 import { useEffect, useRef } from "react";
-import { AlertNotification, Priority } from "../types/contracts";
+import { Priority, SoundClass } from "../types/contracts";
+import { SOUND_IMAGE } from "../utils/soundMeta";
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const MAX_DIST_M   = 5;       // metres — full-radius distance
-const BLIP_TTL_MS  = 4000;    // blip fades over 4 seconds
-const SWEEP_RPM_MS = 3000;    // full rotation every 3 seconds
-const TRAIL_STEPS  = 24;      // sweep-trail arc segments
-const TRAIL_ARC    = Math.PI / 2; // 90° sweep trail
+const MIN_R_FRAC = 0.35;  // inner band boundary (fraction of radar radius)
+const MAX_R_FRAC = 0.82;  // outer band boundary (fraction of radar radius)
+const DIST_MIN_M = 0.5;   // distances at/below this clamp to MIN_R_FRAC
+const DIST_MAX_M = 5.0;   // distances at/above this clamp to MAX_R_FRAC
+
+function distanceToRFrac(distance_m: number): number {
+  const clamped = Math.max(DIST_MIN_M, Math.min(distance_m, DIST_MAX_M));
+  return MIN_R_FRAC
+    + ((clamped - DIST_MIN_M) / (DIST_MAX_M - DIST_MIN_M))
+    * (MAX_R_FRAC - MIN_R_FRAC);
+}
+
+const BLIP_TTL_MS = 9000;
+const SWEEP_RPM_MS = 3600;
+const TRAIL_STEPS = 20;
+const TRAIL_ARC = Math.PI / 2;
 
 const COLORS = {
-  bg:           "#060d06",
-  ring:         "#0f1f0f",
-  grid:         "#1a2f1a",
-  border:       "#1a3a1a",
-  label:        "#4a6a4a",
-  sweep:        "#22c55e",
-  priorityHigh:   "#ef4444",
+  bg: "#ffffff",
+  ring: "#e5e7eb",
+  grid: "#d1d5db",
+  border: "#cbd5e1",
+  label: "#64748b",
+  sweep: "#0ea5e9",
+  text: "#111827",
+  muted: "#64748b",
+  callout: "rgba(255,255,255,0.92)",
+  priorityHigh: "#ff385c",
   priorityMedium: "#f97316",
-  priorityLow:    "#22c55e",
+  priorityLow: "#16a34a",
 } as const;
 
 const PRIORITY_COLOR: Record<Priority, string> = {
-  high:   COLORS.priorityHigh,
+  high: COLORS.priorityHigh,
   medium: COLORS.priorityMedium,
-  low:    COLORS.priorityLow,
+  low: COLORS.priorityLow,
 };
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+export interface RadarDetection {
+  id: string;
+  timestamp: number;
+  sound_class: SoundClass;
+  direction_of_arrival: number;
+  distance_estimation: number;
+  sed_confidence: number;
+  priority?: Priority;
+  message?: string;
+}
+
+interface Blip {
+  detection: RadarDetection;
+  born: number;
+}
+
+interface Props {
+  detections: RadarDetection[];
+  size?: number;
+  avatarSrc?: string;
+}
+
 function polarToXY(
   dirDeg: number,
-  distM: number,
+  rFrac: number,
   radiusPx: number,
   cx: number,
   cy: number,
 ) {
-  const r   = Math.min(distM / MAX_DIST_M, 1) * radiusPx;
-  const rad = ((dirDeg - 90) * Math.PI) / 180; // 0° = top (North)
+  const r = rFrac * radiusPx;
+  // 0° → bottom-centre (back), +90° → right, -90° → left
+  const rad = ((90 - dirDeg) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
-// ── Types ────────────────────────────────────────────────────────────────────
-interface Blip {
-  alert: AlertNotification;
-  born:  number; // performance.now()
-}
+export default function RadarWidget({ detections, size = 320, avatarSrc }: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const blipsRef = useRef<Blip[]>([]);
+  const seenRef = useRef<Set<string>>(new Set());
+  const sweepRef = useRef(0);
+  const lastTimeRef = useRef<number | null>(null);
+  const rafRef = useRef<number>(0);
+  const avatarImgRef = useRef<HTMLImageElement | null>(null);
+  const ringFallbackImgRef = useRef<HTMLImageElement | null>(null);
+  const soundImgCacheRef = useRef<Map<SoundClass, HTMLImageElement>>(new Map());
 
-interface Props {
-  latestAlert: AlertNotification | null;
-  size?: number;
-}
-
-// ── Component ────────────────────────────────────────────────────────────────
-export default function RadarWidget({ latestAlert, size = 320 }: Props) {
-  const canvasRef    = useRef<HTMLCanvasElement>(null);
-  const blipsRef     = useRef<Blip[]>([]);
-  const sweepRef     = useRef(0);       // radians
-  const lastTimeRef  = useRef<number | null>(null);
-  const rafRef       = useRef<number>(0);
-
-  // Add a new blip whenever latestAlert changes.
+  // Preload all sound class images once
   useEffect(() => {
-    if (!latestAlert) return;
-    blipsRef.current.push({ alert: latestAlert, born: performance.now() });
-  }, [latestAlert]);
+    const cache = soundImgCacheRef.current;
+    for (const [sc, src] of Object.entries(SOUND_IMAGE) as [SoundClass, string | null][]) {
+      if (!src) continue;
+      const img = new window.Image();
+      img.src = src;
+      img.onload = () => { cache.set(sc, img); };
+    }
+  }, []);
 
-  // Animation loop — runs independently of React renders.
+  // Load avatar image into a ref so the draw loop can use it without re-mounting
+  useEffect(() => {
+    if (!avatarSrc) { avatarImgRef.current = null; return; }
+    const img = new window.Image();
+    img.src = avatarSrc;
+    img.onload = () => { avatarImgRef.current = img; };
+  }, [avatarSrc]);
+
+  // Load ring fallback image for events without a specific image
+  useEffect(() => {
+    const img = new window.Image();
+    img.src = "/img/ring.jpg";
+    img.onload = () => { ringFallbackImgRef.current = img; };
+  }, []);
+
+  useEffect(() => {
+    for (const detection of detections) {
+      if (seenRef.current.has(detection.id)) {
+        blipsRef.current = blipsRef.current.map((blip) =>
+          blip.detection.id === detection.id ? { ...blip, detection } : blip,
+        );
+        continue;
+      }
+      seenRef.current.add(detection.id);
+      blipsRef.current.push({ detection, born: performance.now() });
+    }
+  }, [detections]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const drawCtx = ctx;
 
-    const dpr    = window.devicePixelRatio ?? 1;
-    canvas.width  = size * dpr;
+    const dpr = window.devicePixelRatio ?? 1;
+    canvas.width = size * dpr;
     canvas.height = size * dpr;
-    canvas.style.width  = `${size}px`;
+    canvas.style.width = `${size}px`;
     canvas.style.height = `${size}px`;
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const cx     = size / 2;
-    const cy     = size / 2;
-    const radius = size / 2 - 16;
+    const cx = size / 2;
+    const cy = size / 2;  // circle centre at vertical midpoint → bottom half visible
+    const radius = size / 2 - 18;
 
     function draw(now: number) {
+      const ctx = drawCtx;
       const dt = lastTimeRef.current == null ? 0 : now - lastTimeRef.current;
       lastTimeRef.current = now;
-
-      // Advance sweep
-      sweepRef.current = (sweepRef.current + (2 * Math.PI * dt) / SWEEP_RPM_MS) % (2 * Math.PI);
-
-      // Evict expired blips
+      sweepRef.current = (sweepRef.current + (Math.PI * dt) / SWEEP_RPM_MS) % Math.PI;
       blipsRef.current = blipsRef.current.filter((b) => now - b.born < BLIP_TTL_MS);
 
-      // ── Clear ─────────────────────────────────────────────────────────────
-      ctx!.clearRect(0, 0, size, size);
+      ctx.clearRect(0, 0, size, size);
 
-      // ── Clip to circle ────────────────────────────────────────────────────
-      ctx!.save();
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, radius, 0, 2 * Math.PI);
-      ctx!.clip();
+      // Fill only the bottom semicircle with the background colour
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx, cy);
+      ctx.closePath();
+      ctx.fillStyle = COLORS.bg;
+      ctx.fill();
+      ctx.restore();
 
-      // Background
-      ctx!.fillStyle = COLORS.bg;
-      ctx!.fillRect(0, 0, size, size);
+      // Clip all radar drawing to the bottom semicircle
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx, cy);
+      ctx.closePath();
+      ctx.clip();
 
-      // Grid lines (N / E / S / W)
-      for (let i = 0; i < 4; i++) {
-        const a = (i * Math.PI) / 2;
-        ctx!.beginPath();
-        ctx!.moveTo(cx, cy);
-        ctx!.lineTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
-        ctx!.strokeStyle = COLORS.grid;
-        ctx!.lineWidth   = 1;
-        ctx!.stroke();
+      // Diameter line (flat top)
+      ctx.beginPath();
+      ctx.moveTo(cx - radius, cy);
+      ctx.lineTo(cx + radius, cy);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Centre-to-bottom radial
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx, cy + radius);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // 45° diagonals
+      const d45 = radius * Math.cos(Math.PI / 4);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + d45, cy + d45);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx - d45, cy + d45);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      for (const frac of [MIN_R_FRAC, MAX_R_FRAC]) {
+        const r = frac * radius;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI);
+        ctx.strokeStyle = COLORS.ring;
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
 
-      // Concentric rings at 1 m, 3 m, 5 m (= full radius)
-      for (const dist of [1, 3, 5]) {
-        const r = (dist / MAX_DIST_M) * radius;
-        ctx!.beginPath();
-        ctx!.arc(cx, cy, r, 0, 2 * Math.PI);
-        ctx!.strokeStyle = COLORS.ring;
-        ctx!.lineWidth   = 1;
-        ctx!.stroke();
-      }
-
-      // Distance labels
-      ctx!.fillStyle   = COLORS.label;
-      ctx!.font        = "9px monospace";
-      ctx!.textAlign   = "left";
-      ctx!.textBaseline = "middle";
-      for (const [dist, label] of [[1, "1m"], [3, "3m"], [5, "5m"]] as const) {
-        const r = (dist / MAX_DIST_M) * radius;
-        ctx!.fillText(label, cx + 3, cy - r + 2);
-      }
-
-      // Cardinal labels
-      ctx!.font         = "10px monospace";
-      ctx!.textAlign    = "center";
-      ctx!.textBaseline = "middle";
-      ctx!.fillStyle    = COLORS.label;
-      const cardinals: [string, number, number][] = [
-        ["N",  0,            -(radius - 12)],
-        ["E",  radius - 12,  0             ],
-        ["S",  0,             radius - 12  ],
-        ["W", -(radius - 12), 0            ],
-      ];
-      for (const [lbl, dx, dy] of cardinals) {
-        ctx!.fillText(lbl, cx + dx, cy + dy);
-      }
-
-      // ── Sweep trail ───────────────────────────────────────────────────────
       const sweep = sweepRef.current;
       for (let i = 0; i < TRAIL_STEPS; i++) {
-        const t      = i / TRAIL_STEPS;
+        const t = i / TRAIL_STEPS;
         const startA = sweep - TRAIL_ARC + t * TRAIL_ARC;
-        const endA   = sweep - TRAIL_ARC + (t + 1) * TRAIL_ARC;
-        ctx!.beginPath();
-        ctx!.moveTo(cx, cy);
-        ctx!.arc(cx, cy, radius, startA, endA);
-        ctx!.closePath();
-        ctx!.fillStyle = `rgba(34,197,94,${(t * 0.22).toFixed(3)})`;
-        ctx!.fill();
+        const endA = sweep - TRAIL_ARC + (t + 1) * TRAIL_ARC;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, radius, startA, endA);
+        ctx.closePath();
+        ctx.fillStyle = `rgba(14,165,233,${(t * 0.1).toFixed(3)})`;
+        ctx.fill();
       }
 
-      // Sweep line
-      ctx!.beginPath();
-      ctx!.moveTo(cx, cy);
-      ctx!.lineTo(cx + radius * Math.cos(sweep), cy + radius * Math.sin(sweep));
-      ctx!.strokeStyle = "rgba(34,197,94,0.9)";
-      ctx!.lineWidth   = 2;
-      ctx!.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + radius * Math.cos(sweep), cy + radius * Math.sin(sweep));
+      ctx.strokeStyle = "rgba(14,165,233,0.72)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
 
-      ctx!.restore(); // remove circle clip
+      // Semicircle border + diameter
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx - radius, cy);
+      ctx.strokeStyle = COLORS.border;
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-      // ── Outer border ──────────────────────────────────────────────────────
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, radius, 0, 2 * Math.PI);
-      ctx!.strokeStyle = COLORS.border;
-      ctx!.lineWidth   = 2;
-      ctx!.stroke();
+      ctx.fillStyle = COLORS.label;
+      ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("BACK", cx, cy + radius - 14);
+      ctx.fillText("R", cx + radius - 14, cy + 12);
+      ctx.fillText("L", cx - radius + 14, cy + 12);
 
-      // ── Blips ─────────────────────────────────────────────────────────────
-      for (const { alert, born } of blipsRef.current) {
-        const age     = now - born;
+      // ── Avatar at center (below blips) ────────────────────────
+      const avatarImg = avatarImgRef.current;
+      if (avatarImg) {
+        const r = 32;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.clip();
+        ctx.drawImage(avatarImg, cx - r, cy - r, r * 2, r * 2);
+        ctx.restore();
+        // full white ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      for (const { detection, born } of blipsRef.current) {
+        const age = now - born;
         const opacity = Math.max(0, 1 - age / BLIP_TTL_MS);
         if (opacity <= 0) continue;
 
+        // Derive radius from the *current* distance so the dot moves when the
+        // event approaches/recedes; static events stay put.
+        const rFrac = distanceToRFrac(detection.distance_estimation);
         const { x, y } = polarToXY(
-          alert.direction_of_arrival,
-          alert.distance_estimation,
+          detection.direction_of_arrival,
+          rFrac,
           radius,
           cx,
           cy,
         );
-        const color = PRIORITY_COLOR[alert.priority];
+        const color = detection.priority ? PRIORITY_COLOR[detection.priority] : COLORS.sweep;
 
-        // Outer glow
-        ctx!.save();
-        ctx!.globalAlpha = opacity * 0.35;
-        ctx!.beginPath();
-        ctx!.arc(x, y, 11, 0, 2 * Math.PI);
-        ctx!.fillStyle = color;
-        ctx!.fill();
-        ctx!.restore();
+        ctx.save();
+        ctx.globalAlpha = opacity * 0.22;
+        ctx.beginPath();
+        ctx.arc(x, y, 18, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.restore();
 
-        // Core dot
-        ctx!.save();
-        ctx!.globalAlpha = opacity;
-        ctx!.beginPath();
-        ctx!.arc(x, y, 5, 0, 2 * Math.PI);
-        ctx!.fillStyle = color;
-        ctx!.fill();
-        ctx!.restore();
-
-        // Label (sound class, direction)
-        if (opacity > 0.4) {
-          const label = `${alert.sound_class.replace("_", " ")} ${alert.direction_of_arrival.toFixed(0)}°`;
-          ctx!.save();
-          ctx!.globalAlpha  = opacity;
-          ctx!.font         = "9px monospace";
-          ctx!.fillStyle    = color;
-          ctx!.textAlign    = "center";
-          ctx!.textBaseline = "bottom";
-          ctx!.fillText(label, x, y - 8);
-          ctx!.restore();
+        const soundImg = soundImgCacheRef.current.get(detection.sound_class);
+        const blipR = soundImg ? 13 : 9;
+        if (soundImg) {
+          // Clip image to circle
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.beginPath();
+          ctx.arc(x, y, blipR, 0, 2 * Math.PI);
+          ctx.clip();
+          ctx.drawImage(soundImg, x - blipR, y - blipR, blipR * 2, blipR * 2);
+          ctx.restore();
+        } else {
+          // Fallback: ring.jpg image clipped to circle (no emoji)
+          const fallbackImg = ringFallbackImgRef.current;
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.beginPath();
+          ctx.arc(x, y, blipR, 0, 2 * Math.PI);
+          ctx.clip();
+          if (fallbackImg) {
+            ctx.drawImage(fallbackImg, x - blipR, y - blipR, blipR * 2, blipR * 2);
+          } else {
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+          }
+          ctx.restore();
         }
+        // Colored ring around blip
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.beginPath();
+        ctx.arc(x, y, blipR, 0, 2 * Math.PI);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+
+
       }
 
       rafRef.current = requestAnimationFrame(draw);
@@ -239,8 +340,7 @@ export default function RadarWidget({ latestAlert, size = 320 }: Props) {
   return (
     <canvas
       ref={canvasRef}
-      className="rounded-full"
-      style={{ imageRendering: "pixelated" }}
+      style={{ imageRendering: "auto" }}
     />
   );
 }

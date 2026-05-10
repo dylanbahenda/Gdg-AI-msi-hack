@@ -16,7 +16,7 @@ MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {
         "Glass shatter",
         "Breaking",
         "Crockery breaking and smashing",
-        "Smash, crash",
+        "Smash, crash"
     ],
     "doorbell": [
         "Doorbell",
@@ -24,10 +24,9 @@ MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {
     ],
     "metal_sound": [
         "Clang",
-        "Glass chink, clink",
         "Clatter",
         "Clunk",
-        "Slam",
+        "Glass chink, clink"
     ],
     "alarm": [
         "Alarm",
@@ -60,8 +59,7 @@ MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {
         "Children shouting",
     ],
     "knock": [
-        "Knock",
-        "Whack, thwack",
+        "Knock"
     ],
     "phone": [
         "Telephone bell ringing",
@@ -86,15 +84,14 @@ SOURCE_THRESHOLDS: dict[str, float] = {
     "Breaking": 0.10,
     "Crockery breaking and smashing": 0.10,
     "Smash, crash": 0.10,
+    "Glass chink, clink": 0.03,
     # doorbell
     "Doorbell": 0.10,
     "Ding-dong": 0.10,
     # metal_sound
     "Clang": 0.03,
-    "Glass chink, clink": 0.03,
     "Clatter": 0.10,
     "Clunk": 0.10,
-    "Slam": 0.20,
     # alarm
     "Alarm": 0.05,
     "Alarm clock": 0.05,
@@ -124,7 +121,6 @@ SOURCE_THRESHOLDS: dict[str, float] = {
     "Children shouting": 0.05,
     # knock
     "Knock": 0.10,
-    "Whack, thwack": 0.10,
     # phone
     "Telephone bell ringing": 0.10,
     "Ringtone": 0.10,
@@ -135,7 +131,16 @@ SOURCE_THRESHOLDS: dict[str, float] = {
 
 MACRO_DETECTION_THRESHOLDS: dict[SoundClass, float] = {
     "clap": 0.09,
-    "scream": 0.09,
+    "scream": 0.05,
+    "alarm": 0.25,         # higher: avoid alarm-tone false positives
+    "metal_sound": 0.20,   # highest: clangs/clinks are very FP-prone
+    "knock": 0.10,         # bumped: too many ambient thumps trip 0.05
+    # Recall-first for the safety-critical / informational classes:
+    "crying": 0.05,
+    "broken_glass": 0.05,
+    "doorbell": 0.05,
+    "dog": 0.05,
+    "phone": 0.05,
 }
 
 
