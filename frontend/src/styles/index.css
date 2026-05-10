@@ -27,12 +27,12 @@
   --color-priority-medium: #f97316;
   --color-priority-low:    #16a34a;
 
-  /* Radar — stays dark internally */
-  --color-radar-bg:    #060d06;
-  --color-radar-ring:  #0f1f0f;
-  --color-radar-sweep: #22c55e;
-  --color-radar-grid:  #1a2f1a;
-  --color-radar-label: #4a6a4a;
+  /* Radar */
+  --color-radar-bg:    #ffffff;
+  --color-radar-ring:  #e5e7eb;
+  --color-radar-sweep: #0ea5e9;
+  --color-radar-grid:  #d1d5db;
+  --color-radar-label: #64748b;
 
   /* Typography */
   --font-sans: 'Inter', -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif;

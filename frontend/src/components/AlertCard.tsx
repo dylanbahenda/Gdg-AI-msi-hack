@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { AlertNotification, Priority } from "../types/contracts";
+import { soundEmoji, soundLabel } from "../utils/soundMeta";
 
 // Airbnb-adapted priority colors: Rausch for high
 const PRIORITY_HEX: Record<Priority, string> = {
@@ -34,7 +35,7 @@ interface Props {
 }
 
 export default function AlertCard({ alert, onClick }: Props) {
-  const soundLabel = alert.sound_class.replace(/_/g, " ");
+  const label = soundLabel(alert.sound_class);
   const priorityHex = PRIORITY_HEX[alert.priority];
 
   return (
@@ -57,7 +58,8 @@ export default function AlertCard({ alert, onClick }: Props) {
           {alert.priority}
         </span>
         {/* Sound class */}
-        <span className="text-[14px] font-medium text-[#222222] capitalize">{soundLabel}</span>
+        <span className="text-[18px] leading-none" aria-hidden="true">{soundEmoji(alert.sound_class)}</span>
+        <span className="text-[14px] font-medium text-[#222222] capitalize">{label}</span>
         {/* Timestamp */}
         <span className="text-[13px] text-[#6a6a6a] tabular-nums ml-auto font-mono">{formatTime(alert.timestamp)}</span>
       </div>
@@ -72,6 +74,12 @@ export default function AlertCard({ alert, onClick }: Props) {
         {alert.distance_estimation.toFixed(1)} m
         &nbsp;·&nbsp;
         conf {(alert.sed_confidence * 100).toFixed(0)}%
+        {alert.window_count ? (
+          <>
+            &nbsp;·&nbsp;
+            {alert.window_count} win
+          </>
+        ) : null}
       </p>
     </motion.div>
   );

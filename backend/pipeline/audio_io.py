@@ -20,6 +20,7 @@ Everything stays fully local — no network I/O of any kind.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 import numpy as np
@@ -27,6 +28,8 @@ import sounddevice as sd
 
 from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES, WINDOW_SIZE_S
 from contracts.types import RawChunk
+
+logger = logging.getLogger(__name__)
 
 _BUF_SIZE = WINDOW_SAMPLES * 4   # 4 seconds of history (64 000 samples)
 
@@ -61,18 +64,24 @@ async def start() -> asyncio.Queue[RawChunk]:
         time_info: object,
         status: sd.CallbackFlags,
     ) -> None:
-        # indata shape: (frames, 2) — both channels, view into sounddevice's buffer.
+        # indata shape is either (frames, 2) or (frames, 1). Mono input is
+        # duplicated so the downstream contracts stay stereo-shaped.
+        if indata.shape[1] == 1:
+            frame_data = np.repeat(indata, 2, axis=1)
+        else:
+            frame_data = indata[:, :2]
+
         wp = _write_pos[0]
         end = wp + frames
 
         if end <= _BUF_SIZE:
             # Fast path: no wrap-around.
-            _buf[wp:end] = indata
+            _buf[wp:end] = frame_data
         else:
             # Wrap-around: split the write across the buffer boundary.
             split = _BUF_SIZE - wp
-            _buf[wp:] = indata[:split]
-            _buf[:frames - split] = indata[split:]
+            _buf[wp:] = frame_data[:split]
+            _buf[:frames - split] = frame_data[split:]
 
         _write_pos[0] = end % _BUF_SIZE
         _total_written[0] += frames
@@ -125,13 +134,25 @@ async def start() -> asyncio.Queue[RawChunk]:
         except asyncio.QueueFull:
             pass
 
-    stream = sd.InputStream(
-        samplerate=SAMPLE_RATE,
-        channels=2,
-        dtype="float32",
-        blocksize=hop_samples,   # callback fires exactly once per hop
-        callback=_sd_callback,
-    )
+    try:
+        stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=2,
+            dtype="float32",
+            blocksize=hop_samples,   # callback fires exactly once per hop
+            callback=_sd_callback,
+        )
+    except sd.PortAudioError:
+        logger.warning(
+            "Stereo microphone input unavailable; falling back to mono input."
+        )
+        stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+            blocksize=hop_samples,
+            callback=_sd_callback,
+        )
     stream.start()
 
     # Keep the stream alive by storing it on the queue object itself.
