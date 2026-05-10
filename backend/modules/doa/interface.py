@@ -61,7 +61,9 @@ class DOAModel:
         # Positive angle = right (0° – 90°), negative = left (270° – 359.9°).
         # Python's modulo handles the sign correctly:  (-30) % 360 == 330.
         # Guard against floating-point 360.0 rounding artefact.
-        direction = round(float(angle_deg % 360), 1) % 360
+
+        #direction = round(float(angle_deg % 360), 1) % 360
+        direction = angle_deg
 
         # Class-agnostic distance estimate. The orchestrator recomputes this
         # using the SED class once the two outputs are paired.

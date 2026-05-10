@@ -18,6 +18,10 @@ To swap to direct llama-cpp-python later: replace the Ollama call inside
 """
 from __future__ import annotations
 
+import subprocess
+import time
+import urllib.request
+import urllib.error
 from collections import OrderedDict
 from typing import get_args
 
@@ -67,8 +71,9 @@ _CACHE_MAX = 256
 
 
 def _direction_bucket(deg: float) -> int:
-    """12 buckets, one every 30°."""
-    return int((deg % 360) // 30)
+    """12 buckets over -90° to 90° range (180° total), one every 15°."""
+    normalized = deg + 90  # -90 -> 0, 90 -> 180
+    return int(normalized // 15)
 
 
 def _distance_bucket(m: float) -> str:
@@ -83,9 +88,38 @@ def _distance_bucket(m: float) -> str:
 class LLMReasoner:
     """Local Ollama-backed reasoner for alert generation."""
 
+    _OLLAMA_URL = "http://localhost:11434"
+    _START_TIMEOUT = 15  # seconds to wait for Ollama to become ready
+
     def __init__(self) -> None:
         self._model = "gemma3:1b"
         self._cache: OrderedDict[tuple[str, int, str], str] = OrderedDict()
+        self._ensure_ollama_running()
+
+    # ----------------------------------------------------------- server mgmt
+    def _is_ollama_ready(self) -> bool:
+        try:
+            urllib.request.urlopen(self._OLLAMA_URL, timeout=1)
+            return True
+        except Exception:
+            return False
+
+    def _ensure_ollama_running(self) -> None:
+        if self._is_ollama_ready():
+            return
+        try:
+            subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            return  # ollama not installed; fallback message will be used
+        deadline = time.monotonic() + self._START_TIMEOUT
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            if self._is_ollama_ready():
+                return
 
     # ------------------------------------------------------------------ public
     def reason(self, input: LLMInput) -> LLMOutput:  # noqa: A002
