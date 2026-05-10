@@ -146,7 +146,7 @@ def _print_alert(idx: int, group: GroupedEvent, llm) -> None:
 
 
 # ── default file ───────────────────────────────────────────────────────────
-DEFAULT_FILE = "test_shout_1.wav"
+DEFAULT_FILE = "test_audio.wav"
 
 
 # ── main ───────────────────────────────────────────────────────────────────
