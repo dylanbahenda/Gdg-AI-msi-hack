@@ -60,8 +60,7 @@ MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {
         "Children shouting",
     ],
     "knock": [
-        "Knock",
-        "Whack, thwack",
+        "Knock"
     ],
     "phone": [
         "Telephone bell ringing",
@@ -124,7 +123,6 @@ SOURCE_THRESHOLDS: dict[str, float] = {
     "Children shouting": 0.05,
     # knock
     "Knock": 0.10,
-    "Whack, thwack": 0.10,
     # phone
     "Telephone bell ringing": 0.10,
     "Ringtone": 0.10,
