@@ -136,6 +136,8 @@ SOURCE_THRESHOLDS: dict[str, float] = {
 MACRO_DETECTION_THRESHOLDS: dict[SoundClass, float] = {
     "clap": 0.09,
     "scream": 0.09,
+    "alarm": 0.15,
+    "metal_sound": 0.20,
 }
 
 
