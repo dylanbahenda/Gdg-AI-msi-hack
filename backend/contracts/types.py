@@ -119,10 +119,12 @@ class LLMOutput:
 
 @dataclass
 class AlertNotification:
-    timestamp: float
+    timestamp: float              # start of the merged event
     sound_class: SoundClass
-    direction_of_arrival: float   # degrees, 0–359.9
-    distance_estimation: float    # metres
-    sed_confidence: float         # 0.0–1.0
+    direction_of_arrival: float   # degrees, 0–359.9 (confidence-weighted circular mean)
+    distance_estimation: float    # metres (confidence-weighted mean)
+    sed_confidence: float         # 0.0–1.0 (max across merged windows)
     priority: Priority
     message: str                  # max 80 chars
+    duration_s: float = 0.0       # span of the merged event in seconds
+    window_count: int = 1         # number of raw windows merged into this event

@@ -15,3 +15,14 @@ SED_THRESHOLD: float = 0.6      # minimum confidence to treat a window as "detec
 # Alignment
 # ---------------------------------------------------------------------------
 ALIGNMENT_TIMEOUT_S: float = 0.2  # discard a window if its partner is late by this much
+
+# ---------------------------------------------------------------------------
+# Event grouping (sensitivity window)
+# ---------------------------------------------------------------------------
+# Detections of the same class within this gap are merged into one notification.
+# 0.75 s = 1.5 hops at 0.5 s hop — bridges one missed window without
+# accidentally merging two distinct events that are >= 1 s apart.
+EVENT_MERGE_TOLERANCE_S: float = 0.75
+
+# How often the periodic flusher polls for stale pending groups.
+EVENT_GROUPER_FLUSH_INTERVAL_S: float = 0.5

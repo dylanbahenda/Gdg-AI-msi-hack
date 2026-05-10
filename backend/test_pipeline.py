@@ -37,8 +37,10 @@ logging.basicConfig(
 )
 
 from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES
+from contracts.config import EVENT_GROUPER_FLUSH_INTERVAL_S
 from contracts.types import (
     AlertNotification,
+    AlignedEvent,
     DOAInput,
     DOAOutput,
     LLMInput,
@@ -52,6 +54,7 @@ from modules.doa.interface import DOAModel
 from modules.llm.mock import MockLLMReasoner
 from modules.sed.mock import MockSEDModel
 from pipeline import event_bus
+from pipeline.event_grouper import EventGrouper, GroupedEvent
 
 # Same dedicated executor as the production orchestrator.
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="seld_test")
@@ -116,11 +119,15 @@ async def _run_doa_gate(
     gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]],
     doa_model: DOAModel,
     llm_reasoner: MockLLMReasoner,
+    grouper: EventGrouper,
     alert_count: list[int],
     latencies_ms: list[float],
     window_start_times: dict[int, float],
 ) -> None:
-    """For each SED-detected window: run DOA, reason with LLM, emit alert."""
+    """
+    For each SED-detected window: run DOA, emit raw event, feed grouper.
+    The grouper finalises events; LLM runs once per finalised group.
+    """
     loop = asyncio.get_running_loop()
     log = logging.getLogger("doa_gate")
     while True:
@@ -146,51 +153,93 @@ async def _run_doa_gate(
             2,
         )
 
-        llm_input = LLMInput(
+        aligned = AlignedEvent(
+            window_id=chunk.window_id,
+            timestamp=sed_output.timestamp,
             sound_class=sed_output.sound_class,
             sed_confidence=sed_output.confidence,
             doa_direction_of_arrival=doa_output.direction_of_arrival,
             doa_distance_estimation=distance_m,
         )
-        try:
-            llm_output: LLMOutput = await loop.run_in_executor(
-                _executor, llm_reasoner.reason, llm_input
-            )
-        except Exception:
-            llm_output = LLMOutput(
-                priority="medium",
-                message="Sound detected — could not assess urgency",
-            )
-
-        notification = AlertNotification(
-            timestamp=sed_output.timestamp,
-            sound_class=sed_output.sound_class,
-            direction_of_arrival=doa_output.direction_of_arrival,
-            distance_estimation=distance_m,
-            sed_confidence=sed_output.confidence,
-            priority=llm_output.priority,
-            message=llm_output.message,
+        event_bus.emit_raw_event(aligned)
+        log.info(
+            "raw window %-3d | %-13s | conf=%.2f | dir=%5.1f° dist=%.2fm",
+            chunk.window_id,
+            sed_output.sound_class,
+            sed_output.confidence,
+            doa_output.direction_of_arrival,
+            distance_m,
         )
+
+        for finalized in grouper.add(aligned):
+            await _emit_alert_for_group(loop, llm_reasoner, finalized, alert_count, log)
 
         start = window_start_times.pop(chunk.window_id, None)
         if start is not None:
-            latency_ms = (time.perf_counter() - start) * 1000
-            latencies_ms.append(latency_ms)
-            log.info(
-                "window %-3d | %-13s | conf=%.2f | dir=%5.1f° dist=%.2fm"
-                " | priority=%-6s | latency=%.1f ms",
-                chunk.window_id,
-                sed_output.sound_class,
-                sed_output.confidence,
-                doa_output.direction_of_arrival,
-                distance_m,
-                llm_output.priority,
-                latency_ms,
-            )
+            latencies_ms.append((time.perf_counter() - start) * 1000)
 
-        event_bus.emit_alert(notification)
-        alert_count[0] += 1
         gate_queue.task_done()
+
+
+async def _flush_grouper_periodically(
+    grouper: EventGrouper,
+    llm_reasoner: MockLLMReasoner,
+    alert_count: list[int],
+) -> None:
+    log = logging.getLogger("flusher")
+    loop = asyncio.get_running_loop()
+    while True:
+        await asyncio.sleep(EVENT_GROUPER_FLUSH_INTERVAL_S)
+        for finalized in grouper.flush_stale(now=time.time()):
+            await _emit_alert_for_group(loop, llm_reasoner, finalized, alert_count, log)
+
+
+async def _emit_alert_for_group(
+    loop: asyncio.AbstractEventLoop,
+    llm_reasoner: MockLLMReasoner,
+    grouped: GroupedEvent,
+    alert_count: list[int],
+    log: logging.Logger,
+) -> None:
+    llm_input = LLMInput(
+        sound_class=grouped.sound_class,
+        sed_confidence=grouped.sed_confidence,
+        doa_direction_of_arrival=grouped.direction_of_arrival,
+        doa_distance_estimation=grouped.distance_estimation,
+    )
+    try:
+        llm_output: LLMOutput = await loop.run_in_executor(
+            _executor, llm_reasoner.reason, llm_input
+        )
+    except Exception:
+        llm_output = LLMOutput(
+            priority="medium",
+            message="Sound detected — could not assess urgency",
+        )
+
+    notification = AlertNotification(
+        timestamp=grouped.timestamp,
+        sound_class=grouped.sound_class,
+        direction_of_arrival=grouped.direction_of_arrival,
+        distance_estimation=grouped.distance_estimation,
+        sed_confidence=grouped.sed_confidence,
+        priority=llm_output.priority,
+        message=llm_output.message,
+        duration_s=grouped.duration_s,
+        window_count=grouped.window_count,
+    )
+    event_bus.emit_alert(notification)
+    alert_count[0] += 1
+    log.info(
+        "ALERT  | %-13s | conf=%.2f | dir=%5.1f° dist=%.2fm | dur=%.2fs | n=%d | %s",
+        grouped.sound_class,
+        grouped.sed_confidence,
+        grouped.direction_of_arrival,
+        grouped.distance_estimation,
+        grouped.duration_s,
+        grouped.window_count,
+        llm_output.priority,
+    )
 
 
 async def run_test(num_windows: int = 30) -> None:
@@ -203,6 +252,7 @@ async def run_test(num_windows: int = 30) -> None:
     sed_model = MockSEDModel()
     doa_model = DOAModel()
     llm_reasoner = MockLLMReasoner()
+    grouper = EventGrouper()
 
     raw_queue: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
     gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]] = asyncio.Queue(maxsize=64)
@@ -228,19 +278,29 @@ async def run_test(num_windows: int = 30) -> None:
     )
     doa_task = asyncio.create_task(
         _run_doa_gate(
-            gate_queue, doa_model, llm_reasoner,
+            gate_queue, doa_model, llm_reasoner, grouper,
             alert_count, latencies_ms, window_start_times,
         ),
         name="doa_gate",
     )
+    flush_task = asyncio.create_task(
+        _flush_grouper_periodically(grouper, llm_reasoner, alert_count),
+        name="flusher",
+    )
 
     await producer_task
     log.info("Producer done — draining pipeline…")
-    await asyncio.sleep(0.5)
+    # Give the grouper enough time to age out final pending events.
+    await asyncio.sleep(EVENT_GROUPER_FLUSH_INTERVAL_S * 3)
 
-    for t in (sed_task, doa_task):
+    # Flush anything still pending at shutdown.
+    loop = asyncio.get_running_loop()
+    for finalized in grouper.flush_all():
+        await _emit_alert_for_group(loop, llm_reasoner, finalized, alert_count, log)
+
+    for t in (sed_task, doa_task, flush_task):
         t.cancel()
-    await asyncio.gather(sed_task, doa_task, return_exceptions=True)
+    await asyncio.gather(sed_task, doa_task, flush_task, return_exceptions=True)
 
     # ── Summary ────────────────────────────────────────────────────────────
     log.info("─" * 60)
