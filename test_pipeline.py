@@ -73,13 +73,10 @@ def _load_sed():
 
 
 def _load_llm():
-    """Real LLM via Ollama if reachable, else deterministic mock."""
-    try:
-        from modules.llm.interface import LLMReasoner
-        return LLMReasoner(), "real (gemma3:1b via Ollama)"
-    except Exception:
-        from modules.llm.mock import MockLLMReasoner
-        return MockLLMReasoner(), "mock"
+    """Real LLM via Ollama. If Ollama is unreachable at call time, the
+    reasoner returns its own fallback message — there is no mock."""
+    from modules.llm.interface import LLMReasoner
+    return LLMReasoner(), "real (gemma3:1b via Ollama)"
 
 
 # ── audio helpers ──────────────────────────────────────────────────────────

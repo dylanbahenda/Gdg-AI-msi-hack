@@ -30,5 +30,6 @@ soundfile>=0.12             # WAV/FLAC/OGG decode + write
 librosa>=0.10               # m4a/mp3 loading via audioread+PyAV
 av>=10.0                    # PyAV — bundled ffmpeg libs (no system ffmpeg needed)
 
-# LLM client (optional; pipeline falls back to MockLLMReasoner if absent)
+# LLM client — required. If Ollama is unreachable, LLMReasoner returns its
+# own fallback message ("Sound detected — could not assess urgency").
 ollama>=0.3
