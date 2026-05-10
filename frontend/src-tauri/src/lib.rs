@@ -48,6 +48,11 @@ fn python_path() -> PathBuf {
 }
 
 fn backend_args() -> Vec<String> {
+    if let Ok(path) = env::var("SELD_DEMO_JSON") {
+        if !path.trim().is_empty() {
+            return vec!["--demo-json".to_string(), path];
+        }
+    }
     if let Ok(path) = env::var("SELD_DEMO_FILE") {
         if !path.trim().is_empty() {
             return vec!["--demo-file".to_string(), path];
