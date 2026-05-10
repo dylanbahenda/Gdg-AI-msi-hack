@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { Priority, SoundClass } from "../types/contracts";
 import { SOUND_IMAGE } from "../utils/soundMeta";
 
-const MAX_DIST_M = 5;
+const MIN_R_FRAC = 0.35;  // inner band boundary (fraction of radar radius)
+const MAX_R_FRAC = 0.82;  // outer band boundary (fraction of radar radius)
 const BLIP_TTL_MS = 9000;
 const SWEEP_RPM_MS = 3600;
 const TRAIL_STEPS = 20;
@@ -43,6 +44,7 @@ export interface RadarDetection {
 interface Blip {
   detection: RadarDetection;
   born: number;
+  randomR: number; // fraction of radar radius, randomised at spawn
 }
 
 interface Props {
@@ -53,12 +55,12 @@ interface Props {
 
 function polarToXY(
   dirDeg: number,
-  distM: number,
+  rFrac: number,
   radiusPx: number,
   cx: number,
   cy: number,
 ) {
-  const r = Math.min(distM / MAX_DIST_M, 1) * radiusPx;
+  const r = rFrac * radiusPx;
   const rad = ((dirDeg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
@@ -109,7 +111,8 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         continue;
       }
       seenRef.current.add(detection.id);
-      blipsRef.current.push({ detection, born: performance.now() });
+      const randomR = MIN_R_FRAC + Math.random() * (MAX_R_FRAC - MIN_R_FRAC);
+      blipsRef.current.push({ detection, born: performance.now(), randomR });
     }
   }, [detections]);
 
@@ -157,8 +160,8 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         ctx.stroke();
       }
 
-      for (const dist of [1, 3, 5]) {
-        const r = (dist / MAX_DIST_M) * radius;
+      for (const frac of [MIN_R_FRAC, MAX_R_FRAC]) {
+        const r = frac * radius;
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, 2 * Math.PI);
         ctx.strokeStyle = COLORS.ring;
@@ -220,14 +223,14 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         ctx.stroke();
       }
 
-      for (const { detection, born } of blipsRef.current) {
+      for (const { detection, born, randomR } of blipsRef.current) {
         const age = now - born;
         const opacity = Math.max(0, 1 - age / BLIP_TTL_MS);
         if (opacity <= 0) continue;
 
         const { x, y } = polarToXY(
           detection.direction_of_arrival,
-          detection.distance_estimation,
+          randomR,
           radius,
           cx,
           cy,
