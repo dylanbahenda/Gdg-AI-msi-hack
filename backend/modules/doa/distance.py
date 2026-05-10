@@ -8,9 +8,9 @@ a clap and a whisper at 1 m have very different RMS values.
 
 This module owns the class → expected-RMS-at-1-m table and the formula that
 combines it with the engine's measurements.  It is called from:
-  - alignment.py — once SED's class is paired with DOA's event_rms,
-                   the *correct* distance is computed and overrides the
-                   class-agnostic estimate that DOA produced standalone.
+  - pipeline/orchestrator.py — once SED's class is paired with DOA's
+                   event_rms in the gating stage, the *correct* distance is
+                   computed and overrides the class-agnostic estimate.
   - doa/interface.py — for a best-effort estimate when DOA runs alone.
 """
 from __future__ import annotations

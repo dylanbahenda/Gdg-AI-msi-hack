@@ -63,7 +63,7 @@ class DOAModel:
         # Guard against floating-point 360.0 rounding artefact.
         direction = round(float(angle_deg % 360), 1) % 360
 
-        # Class-agnostic distance estimate. The alignment layer recomputes this
+        # Class-agnostic distance estimate. The orchestrator recomputes this
         # using the SED class once the two outputs are paired.
         distance_m = compute_distance(event_rms, coherence, sound_class=None)
 

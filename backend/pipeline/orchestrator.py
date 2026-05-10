@@ -44,6 +44,7 @@ from modules.sed.mock import MockSEDModel as SEDModel
 from modules.llm.interface import LLMReasoner
 
 # DOA: real GCC-PHAT implementation — no mock needed.
+from modules.doa.distance import compute_distance
 from modules.doa.interface import DOAModel
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -102,11 +103,23 @@ async def _run_doa_gate(
             _executor, doa_model.estimate, doa_input
         )
 
+        # Class-conditional distance: DOA's standalone estimate is class-agnostic
+        # and would systematically miss for loud (scream) or quiet (clap) sources.
+        # Now that SED's class is known, recompute using the per-class reference.
+        distance_m = round(
+            compute_distance(
+                event_rms=doa_output.event_rms,
+                coherence=doa_output.coherence,
+                sound_class=sed_output.sound_class,
+            ),
+            2,
+        )
+
         llm_input = LLMInput(
             sound_class=sed_output.sound_class,
             sed_confidence=sed_output.confidence,
             doa_direction_of_arrival=doa_output.direction_of_arrival,
-            doa_distance_estimation=doa_output.distance_estimation,
+            doa_distance_estimation=distance_m,
         )
         try:
             llm_output: LLMOutput = await loop.run_in_executor(
@@ -122,7 +135,7 @@ async def _run_doa_gate(
             timestamp=sed_output.timestamp,
             sound_class=sed_output.sound_class,
             direction_of_arrival=doa_output.direction_of_arrival,
-            distance_estimation=doa_output.distance_estimation,
+            distance_estimation=distance_m,
             sed_confidence=sed_output.confidence,
             priority=llm_output.priority,
             message=llm_output.message,

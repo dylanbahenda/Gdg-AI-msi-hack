@@ -47,6 +47,7 @@ from contracts.types import (
     SEDInput,
     SEDOutput,
 )
+from modules.doa.distance import compute_distance
 from modules.doa.interface import DOAModel
 from modules.llm.mock import MockLLMReasoner
 from modules.sed.mock import MockSEDModel
@@ -135,11 +136,21 @@ async def _run_doa_gate(
             _executor, doa_model.estimate, doa_input
         )
 
+        # Class-conditional distance: see orchestrator.py for rationale.
+        distance_m = round(
+            compute_distance(
+                event_rms=doa_output.event_rms,
+                coherence=doa_output.coherence,
+                sound_class=sed_output.sound_class,
+            ),
+            2,
+        )
+
         llm_input = LLMInput(
             sound_class=sed_output.sound_class,
             sed_confidence=sed_output.confidence,
             doa_direction_of_arrival=doa_output.direction_of_arrival,
-            doa_distance_estimation=doa_output.distance_estimation,
+            doa_distance_estimation=distance_m,
         )
         try:
             llm_output: LLMOutput = await loop.run_in_executor(
@@ -155,7 +166,7 @@ async def _run_doa_gate(
             timestamp=sed_output.timestamp,
             sound_class=sed_output.sound_class,
             direction_of_arrival=doa_output.direction_of_arrival,
-            distance_estimation=doa_output.distance_estimation,
+            distance_estimation=distance_m,
             sed_confidence=sed_output.confidence,
             priority=llm_output.priority,
             message=llm_output.message,
@@ -172,7 +183,7 @@ async def _run_doa_gate(
                 sed_output.sound_class,
                 sed_output.confidence,
                 doa_output.direction_of_arrival,
-                doa_output.distance_estimation,
+                distance_m,
                 llm_output.priority,
                 latency_ms,
             )

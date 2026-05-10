@@ -34,8 +34,8 @@ class DOAEngine:
 
         The engine returns *raw* measurements; absolute distance requires
         knowing the source loudness and is computed separately by
-        ``modules.doa.distance.compute_distance`` — typically inside
-        ``pipeline/alignment.py`` once the SED class is paired in.
+        ``modules.doa.distance.compute_distance`` — called by
+        ``pipeline/orchestrator.py`` once the SED class is paired in.
 
         Args:
             stereo:      float32 array, shape (n_samples, 2).

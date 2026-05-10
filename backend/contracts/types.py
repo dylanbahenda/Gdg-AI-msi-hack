@@ -73,9 +73,10 @@ class DOAOutput:
     timestamp: float           # echo from input
     direction_of_arrival: float   # 0–359.9°, clockwise from front
     distance_estimation: float    # estimated metres (class-agnostic best effort;
-                                  # alignment overrides with class-conditional value)
-    # Raw measurements that let the alignment layer recompute distance once
-    # SED's class is known. Defaulted for backward compatibility.
+                                  # the orchestrator overrides this with the
+                                  # class-conditional value once SED has run)
+    # Raw measurements that let the orchestrator recompute distance once SED's
+    # class is known. Defaulted for backward compatibility.
     event_rms: float = 0.0     # p95 RMS amplitude over the chunk
     coherence: float = 0.0     # GCC-PHAT peak height [-1, 1]
 
