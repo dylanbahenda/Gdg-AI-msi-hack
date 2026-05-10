@@ -1,6 +1,7 @@
 use tauri::Emitter;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
+use std::env;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -46,13 +47,32 @@ fn python_path() -> PathBuf {
     }
 }
 
-fn spawn_dev_backend(handle: tauri::AppHandle) {
+fn backend_args() -> Vec<String> {
+    if let Ok(path) = env::var("SELD_DEMO_FILE") {
+        if !path.trim().is_empty() {
+            return vec!["--demo-file".to_string(), path];
+        }
+    }
+    Vec::new()
+}
+
+fn backend_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("backend")
+}
+
+fn spawn_dev_backend(handle: tauri::AppHandle, args: Vec<String>) {
     let backend = backend_main_path();
     let python = python_path();
+    let cwd = backend_dir();
     tauri::async_runtime::spawn_blocking(move || {
         let Ok(mut child) = Command::new(&python)
             .arg("-u")
             .arg(&backend)
+            .args(&args)
+            .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
@@ -84,6 +104,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let handle = app.handle().clone();
+            let args = backend_args();
 
             // Spawn the Python pipeline sidecar.
             // If it fails (e.g. binary not yet bundled in dev), log and continue —
@@ -91,12 +112,14 @@ pub fn run() {
             match app.shell().sidecar("seld-pipeline") {
                 Err(e) => {
                     eprintln!("[sidecar] seld-pipeline not found, spawning dev backend: {e}");
-                    spawn_dev_backend(handle.clone());
+                    spawn_dev_backend(handle.clone(), args);
                 }
-                Ok(cmd) => match cmd.spawn() {
+                Ok(cmd) => {
+                    let cmd = if args.is_empty() { cmd } else { cmd.args(args.clone()) };
+                    match cmd.spawn() {
                     Err(e) => {
                         eprintln!("[sidecar] failed to spawn seld-pipeline, spawning dev backend: {e}");
-                        spawn_dev_backend(handle.clone());
+                        spawn_dev_backend(handle.clone(), args);
                     }
                     Ok((mut rx, child)) => {
                         tauri::async_runtime::spawn(async move {
@@ -111,6 +134,7 @@ pub fn run() {
                             }
                             let _ = child.kill();
                         });
+                    }
                     }
                 },
             }

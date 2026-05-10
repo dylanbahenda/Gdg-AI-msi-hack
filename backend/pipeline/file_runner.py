@@ -32,7 +32,12 @@ from pipeline.event_grouper import EventGrouper, GroupedEvent
 logger = logging.getLogger(__name__)
 
 
-def run_file(path: Path) -> None:
+def run_file(
+    path: Path,
+    *,
+    realtime: bool = False,
+    fake_spatial: bool = False,
+) -> None:
     """Run the full SELD pipeline on one local audio file and emit JSON lines."""
     if not path.exists():
         raise FileNotFoundError(f"audio file not found: {path}")
@@ -42,7 +47,8 @@ def run_file(path: Path) -> None:
     duration_s = stereo.shape[0] / SAMPLE_RATE
 
     logger.info(
-        "File fallback: %s | %.2fs | %d windows",
+        "File %s: %s | %.2fs | %d windows",
+        "demo replay" if realtime else "fallback",
         path,
         duration_s,
         len(windows),
@@ -56,6 +62,7 @@ def run_file(path: Path) -> None:
     detected_windows = 0
     alerts = 0
     started = time.perf_counter()
+    base_timestamp = time.time()
 
     def emit_group(grouped: GroupedEvent) -> None:
         nonlocal alerts
@@ -91,7 +98,18 @@ def run_file(path: Path) -> None:
         alerts += 1
 
     for window_id, stereo_window in windows:
-        timestamp = window_id * HOP_SIZE_S
+        if realtime:
+            target_time = started + window_id * HOP_SIZE_S
+            sleep_s = target_time - time.perf_counter()
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+            timestamp = base_timestamp + window_id * HOP_SIZE_S
+        else:
+            timestamp = window_id * HOP_SIZE_S
+
+        for grouped in grouper.flush_stale(now=timestamp):
+            emit_group(grouped)
+
         sed_output = sed_model.detect(
             SEDInput(
                 audio_chunk=stereo_window[:, 0],
@@ -112,20 +130,27 @@ def run_file(path: Path) -> None:
                 window_id=window_id,
             )
         )
-        distance_m = round(
-            compute_distance(
-                event_rms=doa_output.event_rms,
-                coherence=doa_output.coherence,
+        if fake_spatial:
+            direction, distance_m = _fake_spatial_values(
                 sound_class=sed_output.sound_class,
-            ),
-            2,
-        )
+                window_id=window_id,
+            )
+        else:
+            direction = doa_output.direction_of_arrival
+            distance_m = round(
+                compute_distance(
+                    event_rms=doa_output.event_rms,
+                    coherence=doa_output.coherence,
+                    sound_class=sed_output.sound_class,
+                ),
+                2,
+            )
         aligned = AlignedEvent(
             window_id=window_id,
             timestamp=timestamp,
             sound_class=sed_output.sound_class,
             sed_confidence=sed_output.confidence,
-            doa_direction_of_arrival=doa_output.direction_of_arrival,
+            doa_direction_of_arrival=direction,
             doa_distance_estimation=distance_m,
         )
         event_bus.emit_raw_event(aligned)
@@ -159,6 +184,40 @@ def _load_stereo_16k(path: Path) -> np.ndarray:
         logger.warning("File has %d channels; using first two.", audio.shape[1])
         audio = audio[:, :2]
     return audio
+
+
+def _fake_spatial_values(sound_class: str, window_id: int) -> tuple[float, float]:
+    """Stable demo-only DOA/distance values so file replay looks spatial."""
+    base_direction = {
+        "crying": 340.0,
+        "scream": 25.0,
+        "broken_glass": 285.0,
+        "alarm": 90.0,
+        "dog": 325.0,
+        "clap": 350.0,
+        "knock": 35.0,
+        "doorbell": 315.0,
+        "phone": 70.0,
+        "metal_sound": 250.0,
+    }.get(sound_class, 0.0)
+    base_distance = {
+        "crying": 1.8,
+        "scream": 1.1,
+        "broken_glass": 1.4,
+        "alarm": 3.0,
+        "dog": 1.5,
+        "clap": 0.6,
+        "knock": 0.9,
+        "doorbell": 3.6,
+        "phone": 2.2,
+        "metal_sound": 1.7,
+    }.get(sound_class, 2.0)
+
+    direction_jitter = ((window_id * 17) % 31) - 15
+    distance_jitter = (((window_id * 7) % 9) - 4) * 0.08
+    direction = round((base_direction + direction_jitter) % 360, 1)
+    distance = round(max(0.1, min(5.0, base_distance + distance_jitter)), 2)
+    return direction, distance
 
 
 def _windows(stereo: np.ndarray) -> list[tuple[int, np.ndarray]]:
