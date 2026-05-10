@@ -2,6 +2,13 @@
 
 A local, fully offline sound-awareness assistant for people with hearing impairments. Sentilo listens through the microphone, detects sound events (door knocks, alarms, speech, etc.), estimates their direction, and surfaces clear alerts in a compact UI — all on-device with no cloud dependency.
 
+## HOW TO START
+
+cd frontend
+
+npm run tauri dev
+
+
 ## Repository overview
 
 This repository combines:
