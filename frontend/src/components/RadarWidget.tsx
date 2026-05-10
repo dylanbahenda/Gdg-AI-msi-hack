@@ -61,7 +61,8 @@ function polarToXY(
   cy: number,
 ) {
   const r = rFrac * radiusPx;
-  const rad = ((dirDeg - 90) * Math.PI) / 180;
+  // 0° → bottom-centre (back), +90° → right, -90° → left
+  const rad = ((90 - dirDeg) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
@@ -131,39 +132,71 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const cx = size / 2;
-    const cy = size / 2;
+    const cy = size / 2;  // circle centre at vertical midpoint → bottom half visible
     const radius = size / 2 - 18;
 
     function draw(now: number) {
       const ctx = drawCtx;
       const dt = lastTimeRef.current == null ? 0 : now - lastTimeRef.current;
       lastTimeRef.current = now;
-      sweepRef.current = (sweepRef.current + (2 * Math.PI * dt) / SWEEP_RPM_MS) % (2 * Math.PI);
+      sweepRef.current = (sweepRef.current + (Math.PI * dt) / SWEEP_RPM_MS) % Math.PI;
       blipsRef.current = blipsRef.current.filter((b) => now - b.born < BLIP_TTL_MS);
 
       ctx.clearRect(0, 0, size, size);
-      ctx.fillStyle = COLORS.bg;
-      ctx.fillRect(0, 0, size, size);
 
+      // Fill only the bottom semicircle with the background colour
       ctx.save();
       ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx, cy);
+      ctx.closePath();
+      ctx.fillStyle = COLORS.bg;
+      ctx.fill();
+      ctx.restore();
+
+      // Clip all radar drawing to the bottom semicircle
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx, cy);
+      ctx.closePath();
       ctx.clip();
 
-      for (let i = 0; i < 4; i++) {
-        const a = (i * Math.PI) / 2;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
-        ctx.strokeStyle = COLORS.grid;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
+      // Diameter line (flat top)
+      ctx.beginPath();
+      ctx.moveTo(cx - radius, cy);
+      ctx.lineTo(cx + radius, cy);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Centre-to-bottom radial
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx, cy + radius);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // 45° diagonals
+      const d45 = radius * Math.cos(Math.PI / 4);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + d45, cy + d45);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx - d45, cy + d45);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
       for (const frac of [MIN_R_FRAC, MAX_R_FRAC]) {
         const r = frac * radius;
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.arc(cx, cy, r, 0, Math.PI);
         ctx.strokeStyle = COLORS.ring;
         ctx.lineWidth = 1;
         ctx.stroke();
@@ -190,8 +223,10 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
       ctx.stroke();
       ctx.restore();
 
+      // Semicircle border + diameter
       ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx - radius, cy);
       ctx.strokeStyle = COLORS.border;
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -200,10 +235,9 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
       ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("FRONT", cx, cy - radius + 14);
-      ctx.fillText("R", cx + radius - 14, cy);
-      ctx.fillText("L", cx - radius + 14, cy);
       ctx.fillText("BACK", cx, cy + radius - 14);
+      ctx.fillText("R", cx + radius - 14, cy + 12);
+      ctx.fillText("L", cx - radius + 14, cy + 12);
 
       // ── Avatar at center (below blips) ────────────────────────
       const avatarImg = avatarImgRef.current;
@@ -215,7 +249,7 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         ctx.clip();
         ctx.drawImage(avatarImg, cx - r, cy - r, r * 2, r * 2);
         ctx.restore();
-        // white ring
+        // full white ring
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, 2 * Math.PI);
         ctx.strokeStyle = "rgba(255,255,255,0.95)";
@@ -295,7 +329,6 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
   return (
     <canvas
       ref={canvasRef}
-      className="rounded-full bg-white"
       style={{ imageRendering: "auto" }}
     />
   );
