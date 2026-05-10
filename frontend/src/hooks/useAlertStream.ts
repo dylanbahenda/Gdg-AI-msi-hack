@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useCallback } from "react";
-import { AlertNotification, RawEvent } from "../types/contracts";
+import { AlertNotification, RawEvent, SystemInfo } from "../types/contracts";
 
 /**
  * Subscribes to Tauri events emitted by the Rust backend bridge.
@@ -10,9 +10,11 @@ import { AlertNotification, RawEvent } from "../types/contracts";
 export function useAlertStream(
   onAlert: (n: AlertNotification) => void,
   onRawEvent: (n: RawEvent) => void,
+  onSystemInfo: (info: SystemInfo) => void,
 ): void {
   const stableAlert = useCallback(onAlert, []); // eslint-disable-line react-hooks/exhaustive-deps
   const stableRaw = useCallback(onRawEvent, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const stableSystemInfo = useCallback(onSystemInfo, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // Only subscribe when actually running inside Tauri.
@@ -21,6 +23,7 @@ export function useAlertStream(
     let cancelled = false;
     let unlistenAlert: (() => void) | null = null;
     let unlistenRaw: (() => void) | null = null;
+    let unlistenSystemInfo: (() => void) | null = null;
 
     listen<string>("alert", (event) => {
       if (cancelled) return;
@@ -46,10 +49,23 @@ export function useAlertStream(
       unlistenRaw = fn;
     });
 
+    listen<string>("system_info", (event) => {
+      if (cancelled) return;
+      try {
+        const info: SystemInfo = JSON.parse(event.payload);
+        stableSystemInfo(info);
+      } catch {
+        console.warn("Received malformed system_info payload:", event.payload);
+      }
+    }).then((fn) => {
+      unlistenSystemInfo = fn;
+    });
+
     return () => {
       cancelled = true;
       unlistenAlert?.();
       unlistenRaw?.();
+      unlistenSystemInfo?.();
     };
-  }, [stableAlert, stableRaw]);
+  }, [stableAlert, stableRaw, stableSystemInfo]);
 }

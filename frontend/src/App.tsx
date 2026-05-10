@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { AlertNotification, RawEvent } from "./types/contracts";
+import { AlertNotification, RawEvent, SystemInfo } from "./types/contracts";
 import { startMockFeed } from "./mock/mockFeed";
 import { useAlertStream } from "./hooks/useAlertStream";
 import RadarWidget, { RadarDetection } from "./components/RadarWidget";
 import AlertFeed from "./components/AlertFeed";
 import HeaderBar from "./components/HeaderBar";
 import LastAlertBar from "./components/LastAlertBar";
+import MonoSoundDisplay from "./components/MonoSoundDisplay";
+import MonoBanner from "./components/MonoBanner";
 import { soundEmoji } from "./utils/soundMeta";
 
 // Use mock feed when running in browser without Tauri (pure dev mode).
@@ -16,6 +18,7 @@ function App() {
   const [rawEvents, setRawEvents]     = useState<RawEvent[]>([]);
   const [replayAlert, setReplayAlert] = useState<AlertNotification | null>(null);
   const [status, setStatus]           = useState<"listening" | "detected" | "error">("listening");
+  const [isMono, setIsMono]           = useState(false);
 
   const handleNewAlert = useCallback((n: AlertNotification) => {
     setAlerts((prev) => [n, ...prev].slice(0, 50));
@@ -30,6 +33,10 @@ function App() {
     setTimeout(() => setStatus("listening"), 800);
   }, []);
 
+  const handleSystemInfo = useCallback((info: SystemInfo) => {
+    setIsMono(info.mono_fallback);
+  }, []);
+
   // Mock feed (browser dev mode — no Tauri running).
   useEffect(() => {
     if (!IS_MOCK) return;
@@ -40,6 +47,7 @@ function App() {
   useAlertStream(
     IS_MOCK ? () => {} : handleNewAlert,
     IS_MOCK ? () => {} : handleRawEvent,
+    IS_MOCK ? () => {} : handleSystemInfo,
   );
 
   // The alert shown on the radar: replayed card OR the newest real alert.
@@ -82,35 +90,44 @@ function App() {
     <div className="h-screen w-screen bg-[#f7f7f7] flex flex-col overflow-hidden" style={{ fontFamily: "'Inter', -apple-system, system-ui, sans-serif", color: "#222222" }}>
       <HeaderBar status={status} sessionCount={alerts.length} />
 
-      <div className="flex flex-1 overflow-hidden gap-0">
-        {/* Left — Radar panel */}
-        <div className="flex flex-col items-center justify-center w-[400px] shrink-0 border-r border-[#dddddd] bg-white p-6 gap-5">
-          <div
-            className="rounded-full overflow-hidden bg-white"
-            style={{ boxShadow: "rgba(0,0,0,0.02) 0 0 0 1px, rgba(0,0,0,0.06) 0 4px 12px, rgba(0,0,0,0.12) 0 8px 20px" }}
-          >
-            <RadarWidget detections={radarDetections} size={330} />
-          </div>
+      {/* Mono-mode startup banner */}
+      {isMono && <MonoBanner />}
 
-          {/* Latest blip summary */}
-          {radarAlert ? (
-            <div className="w-full rounded-xl bg-[#f7f7f7] border border-[#ebebeb] px-4 py-3">
-              <p className="text-[12px] text-[#6a6a6a] font-mono text-center leading-relaxed">
-                <span className="text-[16px] align-middle mr-1" aria-hidden="true">{soundEmoji(radarAlert.sound_class)}</span>
-                <span className="text-[#222222] font-medium capitalize">{radarAlert.sound_class.replace(/_/g, " ")}</span>
-                &nbsp;·&nbsp;{radarAlert.direction_of_arrival.toFixed(0)}°
-                &nbsp;·&nbsp;{radarAlert.distance_estimation.toFixed(1)} m
-              </p>
-              <p className="text-[13px] text-[#3f3f3f] text-center mt-1 leading-snug">{radarAlert.message}</p>
-            </div>
+      <div className="flex flex-1 overflow-hidden gap-0">
+        {/* Left panel — Radar (stereo) or Mono sound display */}
+        <div className="flex flex-col items-center justify-center w-[400px] shrink-0 border-r border-[#dddddd] bg-white p-6 gap-5">
+          {isMono ? (
+            <MonoSoundDisplay alert={replayAlert ?? alerts[0] ?? null} />
           ) : (
-            <p className="text-[12px] text-[#6a6a6a] italic">Awaiting detections…</p>
+            <>
+              <div
+                className="rounded-full overflow-hidden bg-white"
+                style={{ boxShadow: "rgba(0,0,0,0.02) 0 0 0 1px, rgba(0,0,0,0.06) 0 4px 12px, rgba(0,0,0,0.12) 0 8px 20px" }}
+              >
+                <RadarWidget detections={radarDetections} size={330} />
+              </div>
+
+              {/* Latest blip summary */}
+              {radarAlert ? (
+                <div className="w-full rounded-xl bg-[#f7f7f7] border border-[#ebebeb] px-4 py-3">
+                  <p className="text-[12px] text-[#6a6a6a] font-mono text-center leading-relaxed">
+                    <span className="text-[16px] align-middle mr-1" aria-hidden="true">{soundEmoji(radarAlert.sound_class)}</span>
+                    <span className="text-[#222222] font-medium capitalize">{radarAlert.sound_class.replace(/_/g, " ")}</span>
+                    &nbsp;·&nbsp;{radarAlert.direction_of_arrival.toFixed(0)}°
+                    &nbsp;·&nbsp;{radarAlert.distance_estimation.toFixed(1)} m
+                  </p>
+                  <p className="text-[13px] text-[#3f3f3f] text-center mt-1 leading-snug">{radarAlert.message}</p>
+                </div>
+              ) : (
+                <p className="text-[12px] text-[#6a6a6a] italic">Awaiting detections…</p>
+              )}
+            </>
           )}
         </div>
 
         {/* Right — Alert feed */}
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
-          <AlertFeed alerts={alerts} onCardClick={setReplayAlert} />
+          <AlertFeed alerts={alerts} onCardClick={setReplayAlert} showSpatial={!isMono} />
         </div>
       </div>
 

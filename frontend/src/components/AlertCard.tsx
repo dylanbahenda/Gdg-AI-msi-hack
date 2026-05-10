@@ -32,9 +32,10 @@ function formatTime(ts: number): string {
 interface Props {
   alert: AlertNotification;
   onClick: (a: AlertNotification) => void;
+  showSpatial?: boolean;
 }
 
-export default function AlertCard({ alert, onClick }: Props) {
+export default function AlertCard({ alert, onClick, showSpatial = true }: Props) {
   const label = soundLabel(alert.sound_class);
   const priorityHex = PRIORITY_HEX[alert.priority];
 
@@ -69,10 +70,14 @@ export default function AlertCard({ alert, onClick }: Props) {
 
       {/* Technical metadata */}
       <p className="text-[12px] text-[#6a6a6a] mt-1.5 font-mono">
-        ↗ {alert.direction_of_arrival.toFixed(0)}°
-        &nbsp;·&nbsp;
-        {alert.distance_estimation.toFixed(1)} m
-        &nbsp;·&nbsp;
+        {showSpatial && (
+          <>
+            ↗ {alert.direction_of_arrival.toFixed(0)}°
+            &nbsp;·&nbsp;
+            {alert.distance_estimation.toFixed(1)} m
+            &nbsp;·&nbsp;
+          </>
+        )}
         conf {(alert.sed_confidence * 100).toFixed(0)}%
         {alert.window_count ? (
           <>

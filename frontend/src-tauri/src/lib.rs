@@ -19,7 +19,7 @@ fn emit_backend_line(handle: &tauri::AppHandle, line: &str) {
         return;
     };
 
-    if channel == "alert" || channel == "raw_event" {
+    if channel == "alert" || channel == "raw_event" || channel == "system_info" {
         let _ = handle.emit(channel, trimmed);
     }
 }

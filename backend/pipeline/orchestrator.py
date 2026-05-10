@@ -225,7 +225,10 @@ async def run() -> None:
     raw_queue: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
     gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]] = asyncio.Queue(maxsize=64)
 
-    source_queue = await audio_io.start()
+    source_queue, is_mono = await audio_io.start()
+    event_bus.emit_system_info(is_mono)
+    if is_mono:
+        logger.info("Running in mono mode — DOA/spatial data unavailable.")
 
     async def _relay() -> None:
         """Relay audio chunks from the mic source into the pipeline."""

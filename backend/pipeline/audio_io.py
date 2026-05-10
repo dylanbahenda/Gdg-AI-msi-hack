@@ -34,11 +34,14 @@ logger = logging.getLogger(__name__)
 _BUF_SIZE = WINDOW_SAMPLES * 4   # 4 seconds of history (64 000 samples)
 
 
-async def start() -> asyncio.Queue[RawChunk]:
+async def start() -> tuple[asyncio.Queue[RawChunk], bool]:
     """
     Open the microphone and begin producing RawChunk objects.
 
-    Returns an asyncio.Queue that will receive one RawChunk every HOP_SIZE_S.
+    Returns a tuple of:
+      - asyncio.Queue that will receive one RawChunk every HOP_SIZE_S.
+      - bool: True if the mic fell back to mono (no spatial DOA available).
+
     The caller must keep a reference to the queue and consume it; the producer
     runs as a background asyncio task.
 
@@ -142,6 +145,7 @@ async def start() -> asyncio.Queue[RawChunk]:
             blocksize=hop_samples,   # callback fires exactly once per hop
             callback=_sd_callback,
         )
+        is_mono = False
     except sd.PortAudioError:
         logger.warning(
             "Stereo microphone input unavailable; falling back to mono input."
@@ -153,10 +157,11 @@ async def start() -> asyncio.Queue[RawChunk]:
             blocksize=hop_samples,
             callback=_sd_callback,
         )
+        is_mono = True
     stream.start()
 
     # Keep the stream alive by storing it on the queue object itself.
     # The caller owns the queue; as long as it is referenced the stream lives.
     queue._sd_stream = stream  # type: ignore[attr-defined]
 
-    return queue
+    return queue, is_mono

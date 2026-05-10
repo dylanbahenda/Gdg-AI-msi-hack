@@ -36,3 +36,8 @@ export interface AlertNotification {
 }
 
 export type PipelineEvent = AlertNotification | RawEvent;
+
+export interface SystemInfo {
+  channel: "system_info";
+  mono_fallback: boolean;
+}

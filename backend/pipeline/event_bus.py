@@ -48,6 +48,16 @@ def emit_raw_event(event: AlignedEvent) -> None:
     _emit("raw_event", event)
 
 
+def emit_system_info(mono_fallback: bool) -> None:
+    """
+    Emit a one-shot system capability event at pipeline startup.
+
+    Tells the UI whether DOA/spatial data is available.
+    Channel: ``{"channel": "system_info", "mono_fallback": true|false}``.
+    """
+    print(json.dumps({"channel": "system_info", "mono_fallback": mono_fallback}), flush=True)
+
+
 def _emit(channel: str, payload_obj: object) -> None:
     payload = {"channel": channel, **asdict(payload_obj)}  # type: ignore[arg-type]
     payload = _make_json_safe(payload)
