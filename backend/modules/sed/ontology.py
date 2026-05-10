@@ -132,7 +132,7 @@ SOURCE_THRESHOLDS: dict[str, float] = {
 MACRO_DETECTION_THRESHOLDS: dict[SoundClass, float] = {
     "clap": 0.09,
     "scream": 0.05,
-    "alarm": 0.20,         # higher: avoid alarm-tone false positives
+    "alarm": 0.25,         # higher: avoid alarm-tone false positives
     "metal_sound": 0.20,   # highest: clangs/clinks are very FP-prone
     "knock": 0.10,         # bumped: too many ambient thumps trip 0.05
     # Recall-first for the safety-critical / informational classes:
