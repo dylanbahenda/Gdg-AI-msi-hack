@@ -8,6 +8,9 @@
     "opener:default",
     "shell:allow-execute",
     "shell:allow-kill",
-    "shell:allow-spawn"
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [{ "name": "seld-pipeline", "sidecar": true }]
+    }
   ]
 }
