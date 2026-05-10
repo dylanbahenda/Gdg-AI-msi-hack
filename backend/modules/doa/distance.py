@@ -46,7 +46,7 @@ DEFAULT_REF_PEAK: float = 0.05
 
 # Distance-clamp bounds — return 0.1 m for very loud events, 20 m max.
 _MIN_DISTANCE_M: float = 0.1
-_MAX_DISTANCE_M: float = 5.0
+_MAX_DISTANCE_M: float = 10.0
 
 
 def compute_distance(
