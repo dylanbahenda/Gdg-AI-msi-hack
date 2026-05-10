@@ -102,12 +102,15 @@ def _print_alert(window_id, timestamp, sed, doa, llm) -> None:
     print()
 
 
+FILE="test_shout_1.wav"
+
+
 # ── main ───────────────────────────────────────────────────────────────────
 def main() -> None:
     if len(sys.argv) >= 2:
         audio_path = Path(sys.argv[1])
     else:
-        audio_path = BACKEND / "tests" / "assets" / "test_shout_1.wav"
+        audio_path = BACKEND / "tests" / "assets" / FILE
 
     if not audio_path.exists():
         sys.exit(f"File not found: {audio_path}")
