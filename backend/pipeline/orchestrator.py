@@ -231,6 +231,7 @@ async def run() -> None:
 
     Model instances are created once at startup, never per-window.
     """
+    event_bus.emit_status("loading", stage="models")
     sed_model = SEDModel()
     doa_model = DOAModel()
     llm_reasoner = LLMReasoner()
@@ -241,7 +242,9 @@ async def run() -> None:
     raw_queue: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
     gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]] = asyncio.Queue(maxsize=64)
 
+    event_bus.emit_status("loading", stage="microphone")
     source_queue = await audio_io.start()
+    event_bus.emit_status("ready")
 
     async def _relay() -> None:
         """Relay audio chunks from the mic source into the pipeline."""

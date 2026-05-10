@@ -48,6 +48,21 @@ def emit_raw_event(event: AlignedEvent) -> None:
     _emit("raw_event", event)
 
 
+def emit_status(state: str, **details: object) -> None:
+    """
+    Emit a backend status line — used by the UI to know the pipeline is alive.
+
+    Without this, in a silent room, no events fire and the UI sits waiting
+    forever on stdout. Sending a 'ready' status as soon as models are loaded
+    confirms the backend is online and listening.
+
+    Channel: ``{"channel": "status", "state": ..., ...details}``.
+    """
+    payload = {"channel": "status", "state": state, **details}
+    payload = _make_json_safe(payload)
+    print(json.dumps(payload), flush=True)
+
+
 def _emit(channel: str, payload_obj: object) -> None:
     payload = {"channel": channel, **asdict(payload_obj)}  # type: ignore[arg-type]
     payload = _make_json_safe(payload)
