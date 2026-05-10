@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertNotification, Priority } from "../types/contracts";
-import { soundEmoji } from "../utils/soundMeta";
+import { soundEmoji, soundImage } from "../utils/soundMeta";
 
 const PRIORITY_HEX: Record<Priority, string> = {
   high:   "#ff385c",
@@ -10,9 +10,10 @@ const PRIORITY_HEX: Record<Priority, string> = {
 
 interface Props {
   alert: AlertNotification | null;
+  avatarSrc?: string;
 }
 
-export default function MonoSoundDisplay({ alert }: Props) {
+export default function MonoSoundDisplay({ alert, avatarSrc }: Props) {
   return (
     <div className="flex flex-col items-center justify-center w-full h-full gap-4">
       <div
@@ -35,9 +36,18 @@ export default function MonoSoundDisplay({ alert }: Props) {
               transition={{ duration: 0.22, ease: "easeOut" }}
               className="flex flex-col items-center"
             >
-              <span className="text-[72px] leading-none select-none" aria-hidden="true">
-                {soundEmoji(alert.sound_class)}
-              </span>
+              {soundImage(alert.sound_class) ? (
+                <img
+                  src={soundImage(alert.sound_class)!}
+                  alt={alert.sound_class}
+                  className="select-none"
+                  style={{ width: 220, height: 220, objectFit: "contain", borderRadius: 16 }}
+                />
+              ) : (
+                <span className="text-[100px] leading-none select-none" aria-hidden="true">
+                  {soundEmoji(alert.sound_class)}
+                </span>
+              )}
             </motion.div>
           ) : (
             <motion.div
@@ -47,7 +57,16 @@ export default function MonoSoundDisplay({ alert }: Props) {
               exit={{ opacity: 0 }}
               className="flex flex-col items-center gap-2"
             >
-              <span className="text-[48px] leading-none select-none opacity-25" aria-hidden="true">🎙</span>
+              {avatarSrc ? (
+                <img
+                  src={avatarSrc}
+                  alt="you"
+                  className="select-none"
+                  style={{ width: 120, height: 120, objectFit: "cover", borderRadius: "50%", opacity: 0.7 }}
+                />
+              ) : (
+                <span className="text-[48px] leading-none select-none opacity-25" aria-hidden="true">🎙</span>
+              )}
               <span className="text-[13px] text-[#6a6a6a] italic">Awaiting detections…</span>
             </motion.div>
           )}
@@ -65,6 +84,29 @@ export default function MonoSoundDisplay({ alert }: Props) {
           />
         )}
       </div>
+
+      {/* ── Single latest message below the square ── */}
+      <AnimatePresence mode="wait">
+        {alert?.message && (
+          <motion.p
+            key={alert.timestamp}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            style={{
+              maxWidth: 300,
+              textAlign: "center",
+              fontSize: 15,
+              lineHeight: 1.5,
+              color: "#3f3f3f",
+              fontFamily: "'Child Writing', 'Inter', -apple-system, system-ui, sans-serif",
+            }}
+          >
+            {alert.message}
+          </motion.p>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

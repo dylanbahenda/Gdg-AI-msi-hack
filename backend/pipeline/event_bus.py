@@ -48,7 +48,6 @@ def emit_raw_event(event: AlignedEvent) -> None:
     _emit("raw_event", event)
 
 
-<<<<<<< HEAD
 def emit_system_info(mono_fallback: bool) -> None:
     """
     Emit a one-shot system capability event at pipeline startup.
@@ -57,21 +56,6 @@ def emit_system_info(mono_fallback: bool) -> None:
     Channel: ``{"channel": "system_info", "mono_fallback": true|false}``.
     """
     print(json.dumps({"channel": "system_info", "mono_fallback": mono_fallback}), flush=True)
-=======
-def emit_status(state: str, **details: object) -> None:
-    """
-    Emit a backend status line — used by the UI to know the pipeline is alive.
-
-    Without this, in a silent room, no events fire and the UI sits waiting
-    forever on stdout. Sending a 'ready' status as soon as models are loaded
-    confirms the backend is online and listening.
-
-    Channel: ``{"channel": "status", "state": ..., ...details}``.
-    """
-    payload = {"channel": "status", "state": state, **details}
-    payload = _make_json_safe(payload)
-    print(json.dumps(payload), flush=True)
->>>>>>> 0360e1f (emit status events + lower silence threshold so UI sees liveness)
 
 
 def _emit(channel: str, payload_obj: object) -> None:

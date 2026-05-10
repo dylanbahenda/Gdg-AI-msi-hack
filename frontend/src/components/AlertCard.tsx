@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { AlertNotification, Priority } from "../types/contracts";
-import { soundEmoji, soundLabel } from "../utils/soundMeta";
+import { soundEmoji, soundImage, soundLabel } from "../utils/soundMeta";
 
 // Airbnb-adapted priority colors: Rausch for high
 const PRIORITY_HEX: Record<Priority, string> = {
@@ -46,10 +46,12 @@ export default function AlertCard({ alert, onClick, showSpatial = true }: Props)
       transition={{ duration: 0.18, ease: "easeOut" }}
       onClick={() => onClick(alert)}
       style={{
-        borderLeft: `3px solid ${priorityHex}`,
-        boxShadow: "rgba(0,0,0,0.02) 0 0 0 1px, rgba(0,0,0,0.04) 0 2px 6px, rgba(0,0,0,0.08) 0 4px 8px",
+        border: `3px solid ${priorityHex}`,
+        borderRadius: 16,
+        boxShadow: `0 0 0 1px ${priorityHex}22, rgba(0,0,0,0.04) 0 2px 6px, rgba(0,0,0,0.08) 0 4px 8px`,
+        fontFamily: "'Child Writing', 'Inter', -apple-system, system-ui, sans-serif",
       }}
-      className="bg-white rounded-xl px-4 py-3.5 cursor-pointer hover:shadow-lg transition-shadow"
+      className="bg-white px-4 py-3.5 cursor-pointer hover:shadow-lg transition-shadow"
     >
       {/* Top row */}
       <div className="flex items-center gap-2">
@@ -58,8 +60,12 @@ export default function AlertCard({ alert, onClick, showSpatial = true }: Props)
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: priorityHex }} />
           {alert.priority}
         </span>
-        {/* Sound class */}
-        <span className="text-[18px] leading-none" aria-hidden="true">{soundEmoji(alert.sound_class)}</span>
+        {/* Sound class image or emoji */}
+        {soundImage(alert.sound_class) ? (
+          <img src={soundImage(alert.sound_class)!} alt={soundLabel(alert.sound_class)} style={{ width: 28, height: 28, objectFit: "contain", borderRadius: 6 }} />
+        ) : (
+          <span className="text-[18px] leading-none" aria-hidden="true">{soundEmoji(alert.sound_class)}</span>
+        )}
         <span className="text-[14px] font-medium text-[#222222] capitalize">{label}</span>
         {/* Timestamp */}
         <span className="text-[13px] text-[#6a6a6a] tabular-nums ml-auto font-mono">{formatTime(alert.timestamp)}</span>

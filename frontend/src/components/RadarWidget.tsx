@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Priority, SoundClass } from "../types/contracts";
-import { soundEmoji, soundLabel } from "../utils/soundMeta";
+import { soundEmoji } from "../utils/soundMeta";
 
 const MAX_DIST_M = 5;
 const BLIP_TTL_MS = 9000;
@@ -48,6 +48,7 @@ interface Blip {
 interface Props {
   detections: RadarDetection[];
   size?: number;
+  avatarSrc?: string;
 }
 
 function polarToXY(
@@ -62,87 +63,22 @@ function polarToXY(
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
-function roundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  const radius = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.arcTo(x + w, y, x + w, y + h, radius);
-  ctx.arcTo(x + w, y + h, x, y + h, radius);
-  ctx.arcTo(x, y + h, x, y, radius);
-  ctx.arcTo(x, y, x + w, y, radius);
-  ctx.closePath();
-}
-
-function truncateText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-) {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let out = text;
-  while (out.length > 3 && ctx.measureText(`${out}...`).width > maxWidth) {
-    out = out.slice(0, -1);
-  }
-  return `${out}...`;
-}
-
-function drawCallout(
-  ctx: CanvasRenderingContext2D,
-  detection: RadarDetection,
-  x: number,
-  y: number,
-  opacity: number,
-  color: string,
-  size: number,
-) {
-  const emoji = soundEmoji(detection.sound_class);
-  const title = detection.message ?? soundLabel(detection.sound_class);
-  const meta = `${detection.direction_of_arrival.toFixed(0)}° · ${detection.distance_estimation.toFixed(1)}m`;
-  const boxW = Math.min(190, size - 34);
-  const boxH = 50;
-  const left = Math.max(12, Math.min(size - boxW - 12, x + 12));
-  const top = Math.max(12, Math.min(size - boxH - 12, y - boxH - 10));
-
-  ctx.save();
-  ctx.globalAlpha = opacity;
-
-  roundedRect(ctx, left, top, boxW, boxH, 8);
-  ctx.fillStyle = COLORS.callout;
-  ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = color;
-  ctx.stroke();
-
-  ctx.font = "20px system-ui, Apple Color Emoji, Segoe UI Emoji";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText(emoji, left + 10, top + 25);
-
-  ctx.font = "600 11px Inter, system-ui, sans-serif";
-  ctx.fillStyle = COLORS.text;
-  ctx.fillText(truncateText(ctx, title, boxW - 48), left + 38, top + 20);
-
-  ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
-  ctx.fillStyle = COLORS.muted;
-  ctx.fillText(meta, left + 38, top + 34);
-
-  ctx.restore();
-}
-
-export default function RadarWidget({ detections, size = 320 }: Props) {
+export default function RadarWidget({ detections, size = 320, avatarSrc }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const blipsRef = useRef<Blip[]>([]);
   const seenRef = useRef<Set<string>>(new Set());
   const sweepRef = useRef(0);
   const lastTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number>(0);
+  const avatarImgRef = useRef<HTMLImageElement | null>(null);
+
+  // Load avatar image into a ref so the draw loop can use it without re-mounting
+  useEffect(() => {
+    if (!avatarSrc) { avatarImgRef.current = null; return; }
+    const img = new window.Image();
+    img.src = avatarSrc;
+    img.onload = () => { avatarImgRef.current = img; };
+  }, [avatarSrc]);
 
   useEffect(() => {
     for (const detection of detections) {
@@ -284,6 +220,24 @@ export default function RadarWidget({ detections, size = 320 }: Props) {
         ctx.restore();
 
 
+      }
+
+      // ── Avatar at center ──────────────────────────────────────
+      const avatarImg = avatarImgRef.current;
+      if (avatarImg) {
+        const r = 32;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.clip();
+        ctx.drawImage(avatarImg, cx - r, cy - r, r * 2, r * 2);
+        ctx.restore();
+        // white ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
       }
 
       rafRef.current = requestAnimationFrame(draw);

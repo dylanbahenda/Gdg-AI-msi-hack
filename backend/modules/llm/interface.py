@@ -83,8 +83,8 @@ def _distance_bucket(m: float) -> str:
 class LLMReasoner:
     """Local Ollama-backed reasoner for alert generation."""
 
-    def __init__(self, model: str = "gemma3:1b") -> None:
-        self._model = model
+    def __init__(self) -> None:
+        self._model = "gemma3:1b"
         self._cache: OrderedDict[tuple[str, int, str], str] = OrderedDict()
 
     # ------------------------------------------------------------------ public
@@ -111,7 +111,6 @@ class LLMReasoner:
 
         message = self._run_llm(input)
         if message is None:
-            # LLM unreachable: keep class-based priority, use generic message.
             return LLMOutput(priority=priority, message=_FALLBACK_MESSAGE)
 
         self._cache[cache_key] = message

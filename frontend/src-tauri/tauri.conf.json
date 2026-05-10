@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "SELD Monitor",
-        "width": 748,
-        "height": 460,
+        "width": 760,
+        "height": 510,
         "resizable": true
       }
     ],
