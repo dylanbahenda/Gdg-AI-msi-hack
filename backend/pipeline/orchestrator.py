@@ -24,7 +24,13 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from contracts.config import EVENT_GROUPER_FLUSH_INTERVAL_S, WINDOW_SIZE_S
+import numpy as np
+
+from contracts.config import (
+    EVENT_GROUPER_FLUSH_INTERVAL_S,
+    SILENCE_RMS_THRESHOLD,
+    WINDOW_SIZE_S,
+)
 from contracts.types import (
     AlertNotification,
     AlignedEvent,
@@ -76,11 +82,21 @@ async def _run_sed(
     model: SEDModel,
     window_times: dict[int, float],
 ) -> None:
-    """Run SED on every chunk; forward detected windows to gate_queue."""
+    """Run SED on every chunk; forward detected windows to gate_queue.
+
+    Silent-chunk gate: skip the SED forward pass entirely when the mono RMS
+    is below SILENCE_RMS_THRESHOLD. The RMS check costs ~10 µs while the
+    model call costs ~100 ms, so this keeps CPU near zero in quiet rooms.
+    """
     loop = asyncio.get_running_loop()
     while True:
         chunk = await raw_queue.get()
         window_times[chunk.window_id] = time.perf_counter()
+
+        if float(np.sqrt(np.mean(chunk.audio ** 2))) < SILENCE_RMS_THRESHOLD:
+            raw_queue.task_done()
+            continue
+
         sed_input = SEDInput(
             audio_chunk=chunk.audio,
             sample_rate=chunk.sample_rate,

@@ -37,7 +37,7 @@ logging.basicConfig(
 )
 
 from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES
-from contracts.config import EVENT_GROUPER_FLUSH_INTERVAL_S
+from contracts.config import EVENT_GROUPER_FLUSH_INTERVAL_S, SILENCE_RMS_THRESHOLD
 from contracts.types import (
     AlertNotification,
     AlignedEvent,
@@ -97,10 +97,19 @@ async def _run_sed(
     gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]],
     model: MockSEDModel,
 ) -> None:
-    """Run SED on every chunk; forward detected windows to gate_queue."""
+    """Run SED on every chunk; forward detected windows to gate_queue.
+
+    Silent-chunk gate: skip the SED model call when mono RMS is below
+    SILENCE_RMS_THRESHOLD — keeps the test honest under quiet inputs.
+    """
     loop = asyncio.get_running_loop()
     while True:
         chunk = await raw_queue.get()
+
+        if float(np.sqrt(np.mean(chunk.audio ** 2))) < SILENCE_RMS_THRESHOLD:
+            raw_queue.task_done()
+            continue
+
         sed_input = SEDInput(
             audio_chunk=chunk.audio,
             sample_rate=chunk.sample_rate,

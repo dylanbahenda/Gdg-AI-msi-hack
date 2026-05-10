@@ -11,6 +11,13 @@ WINDOW_SAMPLES: int = 16000     # SAMPLE_RATE * WINDOW_SIZE_S
 # ---------------------------------------------------------------------------
 SED_THRESHOLD: float = 0.6      # minimum confidence to treat a window as "detected"
 
+# Silent-chunk gate: skip the SED model when the mono RMS of a window is below
+# this threshold.  Empty rooms produce ~5e-4 RMS from mic noise; quiet speech
+# is ~5e-3; conversation is ~2e-2.  At 0.005 the gate stays open for any sound
+# a human would notice while skipping the silent majority — keeps the system
+# idle near zero CPU during quiet periods.
+SILENCE_RMS_THRESHOLD: float = 0.005
+
 # ---------------------------------------------------------------------------
 # Alignment
 # ---------------------------------------------------------------------------

@@ -41,7 +41,12 @@ except ModuleNotFoundError:
     sys.exit("Missing dependency: pip install soundfile")
 
 try:
-    from contracts.config import HOP_SIZE_S, SAMPLE_RATE, WINDOW_SAMPLES
+    from contracts.config import (
+        HOP_SIZE_S,
+        SAMPLE_RATE,
+        SILENCE_RMS_THRESHOLD,
+        WINDOW_SAMPLES,
+    )
     from contracts.types import (
         AlignedEvent,
         DOAInput,
@@ -208,9 +213,15 @@ def main() -> None:
         _print_alert(alert_idx, group, llm_out)
 
     # ── main loop ─────────────────────────────────────────────────────────
+    silent_skipped = 0
     for window_id, stereo_window in windows:
         timestamp = window_id * HOP_SIZE_S
         mono = stereo_window[:, 0]
+
+        # Silent-chunk gate: skip SED on quiet windows.
+        if float(np.sqrt(np.mean(mono ** 2))) < SILENCE_RMS_THRESHOLD:
+            silent_skipped += 1
+            continue
 
         sed_out = sed_model.detect(
             SEDInput(
@@ -269,6 +280,7 @@ def main() -> None:
         print("  No sound events detected.\n")
 
     print("═" * _W)
+    print(f"  Silent-gated     : {silent_skipped}/{len(windows)} windows  (no SED call)")
     print(f"  Detected windows : {detected_windows}")
     print(f"  Grouped alerts   : {alert_idx}")
     print(
