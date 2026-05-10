@@ -6,6 +6,7 @@ import { useAlertStream } from "./hooks/useAlertStream";
 import RadarWidget, { RadarDetection } from "./components/RadarWidget";
 import MonoSoundDisplay from "./components/MonoSoundDisplay";
 import AlertFeed from "./components/AlertFeed";
+import LegendModal from "./components/LegendModal";
 import { soundLabel } from "./utils/soundMeta";
 
 const IS_MOCK = !("__TAURI_INTERNALS__" in window);
@@ -29,6 +30,7 @@ function App() {
   const [isMono, setIsMono]             = useState(false);
   const [gender, setGender]             = useState<Gender>("female");
   const [showMessages, setShowMessages] = useState(false);
+  const [showLegend, setShowLegend]     = useState(false);
 
   const avatarSrc = AVATAR[gender];
 
@@ -212,6 +214,32 @@ function App() {
       </div>
 
       {/* Toasts removed — latest message shown below the main square */}
+
+      {/* ── Legend button (fixed bottom-left) ───────────────── */}
+      <button
+        onClick={() => setShowLegend(true)}
+        style={{
+          position: "fixed",
+          bottom: 18,
+          left: 18,
+          padding: "7px 16px",
+          borderRadius: 999,
+          background: "#fff",
+          border: "none",
+          cursor: "pointer",
+          fontSize: 13,
+          fontWeight: 600,
+          color: "#222",
+          boxShadow: "rgba(0,0,0,0.06) 0 2px 8px, rgba(0,0,0,0.02) 0 0 0 1px",
+          zIndex: 40,
+          fontFamily: "'Child Writing', 'Inter', -apple-system, system-ui, sans-serif",
+        }}
+      >
+        Legend
+      </button>
+
+      {/* ── Legend modal ────────────────────────────────────────── */}
+      <LegendModal open={showLegend} onClose={() => setShowLegend(false)} />
 
       {/* ── Messages panel (slides in from right) ──────────────── */}
       <AnimatePresence>
