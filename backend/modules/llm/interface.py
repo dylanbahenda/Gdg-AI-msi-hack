@@ -51,9 +51,10 @@ _FALLBACK_PRIORITY: Priority = "medium"
 _FALLBACK_MESSAGE = "Sound detected — could not assess urgency"
 
 _SYSTEM_PROMPT = (
-    "You write one short alert for a hearing-impaired user. "
-    "Describe what is happening around them in one direct sentence, "
-    "under 80 characters. Never say 'I'. No explanations."
+    "/no_think"
+    "You are a sound alert system for hearing-impaired users. "
+    "You receive a detected sound label and respond with exactly one short, direct sentence describing what is happening nearby."
+    "Rules: under 15 words, no explanations, never say 'I', no punctuation other than a period, be literal and factual, no dramatization or emotional language."
 )
 
 # Ollama options — tuned for fast CPU inference of small interactions.
