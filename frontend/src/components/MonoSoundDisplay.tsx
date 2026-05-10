@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertNotification, Priority } from "../types/contracts";
-import { soundEmoji, soundImage } from "../utils/soundMeta";
+import { soundEmoji, soundImage, soundLabel } from "../utils/soundMeta";
 
 const PRIORITY_HEX: Record<Priority, string> = {
   high:   "#ff385c",
@@ -87,7 +87,7 @@ export default function MonoSoundDisplay({ alert, avatarSrc }: Props) {
 
       {/* ── Single latest message below the square ── */}
       <AnimatePresence mode="wait">
-        {alert?.message && (
+        {alert && (
           <motion.p
             key={alert.timestamp}
             initial={{ opacity: 0, y: 6 }}
@@ -103,7 +103,10 @@ export default function MonoSoundDisplay({ alert, avatarSrc }: Props) {
               fontFamily: "'Child Writing', 'Inter', -apple-system, system-ui, sans-serif",
             }}
           >
-            {alert.message}
+            <span style={{ color: PRIORITY_HEX[alert.priority], fontWeight: 700 }}>
+              {soundLabel(alert.sound_class)}
+            </span>
+            {alert.message && `: ${alert.message}`}
           </motion.p>
         )}
       </AnimatePresence>

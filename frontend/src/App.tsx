@@ -1,13 +1,20 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertNotification, RawEvent, SystemInfo } from "./types/contracts";
+import { AlertNotification, Priority, RawEvent, SystemInfo } from "./types/contracts";
 import { startMockFeed } from "./mock/mockFeed";
 import { useAlertStream } from "./hooks/useAlertStream";
 import RadarWidget, { RadarDetection } from "./components/RadarWidget";
 import MonoSoundDisplay from "./components/MonoSoundDisplay";
 import AlertFeed from "./components/AlertFeed";
+import { soundLabel } from "./utils/soundMeta";
 
 const IS_MOCK = !("__TAURI_INTERNALS__" in window);
+
+const PRIORITY_HEX: Record<Priority, string> = {
+  high:   "#ff385c",
+  medium: "#f97316",
+  low:    "#16a34a",
+};
 
 type Gender = "female" | "male";
 
@@ -57,8 +64,8 @@ function App() {
       distance_estimation: event.doa_distance_estimation,
       sed_confidence: event.sed_confidence,
     }));
-    const grouped: RadarDetection[] = alerts.slice(0, 18).map((alert, index) => ({
-      id: `alert-${alert.timestamp}-${alert.sound_class}-${index}`,
+    const grouped: RadarDetection[] = alerts.slice(0, 18).map((alert) => ({
+      id: `alert-${alert.timestamp}-${alert.sound_class}`,
       timestamp: alert.timestamp,
       sound_class: alert.sound_class,
       direction_of_arrival: alert.direction_of_arrival,
@@ -175,7 +182,7 @@ function App() {
                 <RadarWidget detections={radarDetections} size={400} avatarSrc={avatarSrc} />
               </div>
               <AnimatePresence mode="wait">
-                {alerts[0]?.message && (
+                {alerts[0] && (
                   <motion.p
                     key={alerts[0].timestamp}
                     initial={{ opacity: 0, y: 6 }}
@@ -191,7 +198,10 @@ function App() {
                       fontFamily: "'Child Writing', 'Inter', -apple-system, system-ui, sans-serif",
                     }}
                   >
-                    {alerts[0].message}
+                    <span style={{ color: PRIORITY_HEX[alerts[0].priority], fontWeight: 700 }}>
+                      {soundLabel(alerts[0].sound_class)}
+                    </span>
+                    {alerts[0].message && `: ${alerts[0].message}`}
                   </motion.p>
                 )}
               </AnimatePresence>

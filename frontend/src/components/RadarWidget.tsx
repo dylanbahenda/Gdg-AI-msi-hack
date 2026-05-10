@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Priority, SoundClass } from "../types/contracts";
-import { soundEmoji } from "../utils/soundMeta";
+import { soundEmoji, SOUND_IMAGE } from "../utils/soundMeta";
 
 const MAX_DIST_M = 5;
 const BLIP_TTL_MS = 9000;
@@ -71,6 +71,18 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
   const lastTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number>(0);
   const avatarImgRef = useRef<HTMLImageElement | null>(null);
+  const soundImgCacheRef = useRef<Map<SoundClass, HTMLImageElement>>(new Map());
+
+  // Preload all sound class images once
+  useEffect(() => {
+    const cache = soundImgCacheRef.current;
+    for (const [sc, src] of Object.entries(SOUND_IMAGE) as [SoundClass, string | null][]) {
+      if (!src) continue;
+      const img = new window.Image();
+      img.src = src;
+      img.onload = () => { cache.set(sc, img); };
+    }
+  }, []);
 
   // Load avatar image into a ref so the draw loop can use it without re-mounting
   useEffect(() => {
@@ -204,19 +216,39 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         ctx.fill();
         ctx.restore();
 
+        const soundImg = soundImgCacheRef.current.get(detection.sound_class);
+        const blipR = soundImg ? 13 : 9;
+        if (soundImg) {
+          // Clip image to circle
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.beginPath();
+          ctx.arc(x, y, blipR, 0, 2 * Math.PI);
+          ctx.clip();
+          ctx.drawImage(soundImg, x - blipR, y - blipR, blipR * 2, blipR * 2);
+          ctx.restore();
+        } else {
+          // Fallback: white circle + emoji
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.beginPath();
+          ctx.arc(x, y, blipR, 0, 2 * Math.PI);
+          ctx.fillStyle = "#ffffff";
+          ctx.fill();
+          ctx.font = "18px system-ui, Apple Color Emoji, Segoe UI Emoji";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(soundEmoji(detection.sound_class), x, y + 0.5);
+          ctx.restore();
+        }
+        // Colored ring around blip
         ctx.save();
         ctx.globalAlpha = opacity;
         ctx.beginPath();
-        ctx.arc(x, y, 9, 0, 2 * Math.PI);
-        ctx.fillStyle = "#ffffff";
-        ctx.fill();
-        ctx.lineWidth = 2;
+        ctx.arc(x, y, blipR, 0, 2 * Math.PI);
         ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
         ctx.stroke();
-        ctx.font = "18px system-ui, Apple Color Emoji, Segoe UI Emoji";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(soundEmoji(detection.sound_class), x, y + 0.5);
         ctx.restore();
 
 
