@@ -27,6 +27,8 @@ from typing import get_args
 
 from contracts.types import LLMInput, LLMOutput, Priority, SoundClass
 
+#heello
+
 
 # ── Priority table — covers all 10 macros (matches docs/infernceclass.md) ──
 _PRIORITIES: dict[SoundClass, Priority] = {
