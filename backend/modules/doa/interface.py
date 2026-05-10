@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 
 from contracts.types import DOAInput, DOAOutput
+from modules.doa.distance import compute_distance
 from modules.doa.engine import DOAEngine
 
 
@@ -52,7 +53,9 @@ class DOAModel:
                 self._calibration_buffer.clear()
 
         # --- Run GCC-PHAT inference ---
-        angle_deg, distance_m = self._engine.infer(input.audio_chunk, input.sample_rate)
+        angle_deg, event_rms, coherence = self._engine.infer(
+            input.audio_chunk, input.sample_rate
+        )
 
         # --- Map ±90° → 0–359.9° clockwise from front ---
         # Positive angle = right (0° – 90°), negative = left (270° – 359.9°).
@@ -60,9 +63,15 @@ class DOAModel:
         # Guard against floating-point 360.0 rounding artefact.
         direction = round(float(angle_deg % 360), 1) % 360
 
+        # Class-agnostic distance estimate. The alignment layer recomputes this
+        # using the SED class once the two outputs are paired.
+        distance_m = compute_distance(event_rms, coherence, sound_class=None)
+
         return DOAOutput(
             window_id=input.window_id,
             timestamp=input.timestamp,
             direction_of_arrival=direction,
-            distance_estimation=round(float(distance_m), 2),
+            distance_estimation=round(distance_m, 2),
+            event_rms=event_rms,
+            coherence=coherence,
         )

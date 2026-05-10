@@ -22,37 +22,47 @@ class DOAEngine:
         )
         self.speed_of_sound = 343.0  # m/s
 
-        # Expected p95 RMS amplitude for typical speech at 1 metre distance.
-        # Tuned for standard laptop/USB microphone pre-amplification levels.
-        self.ref_peak_at_1_meter = 0.2
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def infer(self, stereo: np.ndarray, sample_rate: int) -> tuple[float, float]:
+    def infer(
+        self, stereo: np.ndarray, sample_rate: int
+    ) -> tuple[float, float, float]:
         """
-        Estimate direction and distance from one stereo audio window.
+        Estimate direction-of-arrival metrics for one stereo audio window.
+
+        The engine returns *raw* measurements; absolute distance requires
+        knowing the source loudness and is computed separately by
+        ``modules.doa.distance.compute_distance`` — typically inside
+        ``pipeline/alignment.py`` once the SED class is paired in.
 
         Args:
             stereo:      float32 array, shape (n_samples, 2).
             sample_rate: samples per second (e.g. 16 000).
 
         Returns:
-            (angle_deg, distance_m)
+            (angle_deg, event_rms, coherence)
             angle_deg  — ±90°; negative = left, positive = right, 0 = centre.
-            distance_m — estimated metres to the source.
+            event_rms  — p95 RMS amplitude over the chunk.
+            coherence  — GCC-PHAT peak height (higher = cleaner direct path).
         """
         if stereo.ndim < 2 or stereo.shape[1] < 2:
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0
 
         ch_left = stereo[:, 0]
         ch_right = stereo[:, 1]
         angle_degrees, coherence_score = self._calculate_gcc_phat(
             ch_left, ch_right, sample_rate
         )
-        distance_meters = self._estimate_distance(stereo, coherence_score)
-        return angle_degrees, distance_meters
+        event_rms = self._compute_event_rms(stereo)
+        return angle_degrees, event_rms, coherence_score
+
+    @staticmethod
+    def _compute_event_rms(audio: np.ndarray) -> float:
+        """p95 RMS amplitude — robust to silence gaps within the chunk."""
+        peak_energy = np.percentile(audio ** 2, 95)
+        return float(np.sqrt(peak_energy))
 
     @staticmethod
     def estimate_mic_distance(
@@ -162,27 +172,3 @@ class DOAEngine:
         angle_deg = float(np.degrees(np.arcsin(sin_theta)))
         return angle_deg, peak_value
 
-    def _estimate_distance(self, audio: np.ndarray, coherence: float) -> float:
-        """
-        Estimate distance using peak RMS and mic coherence.
-
-        Uses the inverse-square law: amplitude ∝ 1/d, so d ∝ ref/amplitude.
-        A one-sided coherence penalty inflates the estimate for reverberant
-        conditions (low coherence) without shrinking it for clean signals.
-        """
-        # Top 5 % of energy frames, ignoring silence gaps.
-        peak_energy = np.percentile(audio ** 2, 95)
-        event_rms = float(np.sqrt(peak_energy))
-
-        if event_rms < 1e-5:
-            return 20.0  # Near-silence → push to maximum range.
-
-        base_distance = self.ref_peak_at_1_meter / event_rms
-
-        # Coherence correction (one-sided: only ever increases distance).
-        # High coherence → clean direct path → multiplier = 1.0.
-        # Low coherence  → reverberant room  → multiplier > 1.0.
-        coherence_multiplier = float(np.clip(0.12 / (coherence + 0.01), 1.0, 1.5))
-
-        final_distance = base_distance * coherence_multiplier
-        return float(np.clip(final_distance, 0.1, 20.0))

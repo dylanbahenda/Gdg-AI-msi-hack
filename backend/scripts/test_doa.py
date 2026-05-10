@@ -19,6 +19,7 @@ import soundfile as sf
 _HERE = Path(__file__).resolve().parent.parent   # backend/
 sys.path.insert(0, str(_HERE))
 
+from modules.doa.distance import REF_PEAK_BY_CLASS, compute_distance
 from modules.doa.engine import DOAEngine
 
 
@@ -57,29 +58,42 @@ def main(wav_path: Path) -> None:
     )
 
     engine = DOAEngine(mic_distance_meters=mic_d)
-    angle_deg, distance_m = engine.infer(best_chunk, sample_rate)
+    angle_deg, event_rms, coherence = engine.infer(best_chunk, sample_rate)
 
     # Map to 0–359.9° convention (same as DOAModel)
     direction = round(angle_deg % 360, 1) % 360
 
+    distance_default = compute_distance(event_rms, coherence, sound_class=None)
+
     print()
-    print("=== DOA OUTPUT ===")
+    print("=== DOA OUTPUT (best chunk, class-agnostic) ===")
     if direction <= 5.0 or direction >= 355.0:
         dir_str = "Center"
     elif direction < 180:
         dir_str = "Right"
     else:
         dir_str = "Left"
-    print(f"Direction: {direction:>6.1f}°  ({dir_str})")
-    print(f"Distance : {distance_m:>6.2f} m")
-    print("==================")
+    print(f"Direction      : {direction:>6.1f}°  ({dir_str})")
+    print(f"event_rms      : {event_rms:>6.4f}")
+    print(f"coherence      : {coherence:>6.4f}")
+    print(f"Distance (def) : {distance_default:>6.2f} m  (DEFAULT_REF_PEAK)")
+    print("================================================")
 
-    print("\nAll chunks:")
+    print("\nDistance per assumed class (best chunk only):")
+    for cls in REF_PEAK_BY_CLASS:
+        d = compute_distance(event_rms, coherence, sound_class=cls)
+        print(f"  {cls:<14s} -> {d:>5.2f} m")
+
+    print("\nAll chunks (angle, raw event_rms, coherence, class-agnostic dist):")
     for i, c in enumerate(chunks):
-        a, d = engine.infer(c, sample_rate)
+        a, rms, coh = engine.infer(c, sample_rate)
         peak = float(np.max(np.abs(c)))
+        d = compute_distance(rms, coh, sound_class=None)
         t = i * hop_length / sample_rate
-        print(f"  chunk {i} ({t:>4.2f}s): peak={peak:.4f}  angle={a:+.1f}°  dist={d:.2f} m")
+        print(
+            f"  chunk {i} ({t:>4.2f}s): peak={peak:.4f}  rms={rms:.4f}  "
+            f"coh={coh:.3f}  angle={a:+.1f}°  dist={d:.2f} m"
+        )
 
 
 if __name__ == "__main__":

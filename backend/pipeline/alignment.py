@@ -19,6 +19,7 @@ import time
 
 from contracts.config import ALIGNMENT_TIMEOUT_S
 from contracts.types import AlignedEvent, DOAOutput, SEDOutput
+from modules.doa.distance import compute_distance
 
 
 async def run_alignment(
@@ -37,13 +38,21 @@ async def run_alignment(
     pending_doa: dict[int, tuple[DOAOutput, float]] = {}
 
     def _build_event(sed_out: SEDOutput, doa_out: DOAOutput) -> AlignedEvent:
+        # Recompute distance using the SED class — DOA's standalone estimate is
+        # class-agnostic and would systematically miss for loud (scream) or
+        # quiet (whisper) source types.
+        distance = compute_distance(
+            event_rms=doa_out.event_rms,
+            coherence=doa_out.coherence,
+            sound_class=sed_out.sound_class,
+        )
         return AlignedEvent(
             window_id=sed_out.window_id,
             timestamp=sed_out.timestamp,
             sound_class=sed_out.sound_class,
             sed_confidence=sed_out.confidence,
             doa_direction_of_arrival=doa_out.direction_of_arrival,
-            doa_distance_estimation=doa_out.distance_estimation,
+            doa_distance_estimation=round(distance, 2),
         )
 
     async def _consume_sed() -> None:
