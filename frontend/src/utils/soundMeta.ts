@@ -21,7 +21,7 @@ export const SOUND_IMAGE: Record<SoundClass, string | null> = {
   clap:         "/img/clap.jpg",
   crying:       "/img/cry.jpg",
   dog:          "/img/dog.jpg",
-  doorbell:     "/img/boy.jpg",
+  doorbell:     "/img/doorbell.jpg",
   knock:        "/img/knock.jpg",
   metal_sound:  "/img/metal.jpg",
   scream:       "/img/scream.jpg",

@@ -4,6 +4,16 @@ import { SOUND_IMAGE } from "../utils/soundMeta";
 
 const MIN_R_FRAC = 0.35;  // inner band boundary (fraction of radar radius)
 const MAX_R_FRAC = 0.82;  // outer band boundary (fraction of radar radius)
+const DIST_MIN_M = 0.5;   // distances at/below this clamp to MIN_R_FRAC
+const DIST_MAX_M = 5.0;   // distances at/above this clamp to MAX_R_FRAC
+
+function distanceToRFrac(distance_m: number): number {
+  const clamped = Math.max(DIST_MIN_M, Math.min(distance_m, DIST_MAX_M));
+  return MIN_R_FRAC
+    + ((clamped - DIST_MIN_M) / (DIST_MAX_M - DIST_MIN_M))
+    * (MAX_R_FRAC - MIN_R_FRAC);
+}
+
 const BLIP_TTL_MS = 9000;
 const SWEEP_RPM_MS = 3600;
 const TRAIL_STEPS = 20;
@@ -44,7 +54,6 @@ export interface RadarDetection {
 interface Blip {
   detection: RadarDetection;
   born: number;
-  randomR: number; // fraction of radar radius, randomised at spawn
 }
 
 interface Props {
@@ -112,8 +121,7 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         continue;
       }
       seenRef.current.add(detection.id);
-      const randomR = MIN_R_FRAC + Math.random() * (MAX_R_FRAC - MIN_R_FRAC);
-      blipsRef.current.push({ detection, born: performance.now(), randomR });
+      blipsRef.current.push({ detection, born: performance.now() });
     }
   }, [detections]);
 
@@ -257,14 +265,17 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         ctx.stroke();
       }
 
-      for (const { detection, born, randomR } of blipsRef.current) {
+      for (const { detection, born } of blipsRef.current) {
         const age = now - born;
         const opacity = Math.max(0, 1 - age / BLIP_TTL_MS);
         if (opacity <= 0) continue;
 
+        // Derive radius from the *current* distance so the dot moves when the
+        // event approaches/recedes; static events stay put.
+        const rFrac = distanceToRFrac(detection.distance_estimation);
         const { x, y } = polarToXY(
           detection.direction_of_arrival,
-          randomR,
+          rFrac,
           radius,
           cx,
           cy,

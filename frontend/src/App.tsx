@@ -58,8 +58,30 @@ function App() {
   );
 
   const radarDetections = useMemo<RadarDetection[]>(() => {
+    // Coalesce raw_events of the same class within ~1.5s into one "session"
+    // so the radar shows a single moving dot per real-world event instead of
+    // a cluster of N dots (one per window).
+    const SESSION_GAP_S = 1.5;
+    const sortedRaw = [...rawEvents].sort((a, b) =>
+      a.sound_class === b.sound_class
+        ? a.timestamp - b.timestamp
+        : a.sound_class.localeCompare(b.sound_class),
+    );
+    const sessionByEvent = new Map<RawEvent, number>();
+    let curClass = "";
+    let curSessionTs = 0;
+    let lastTs = -Infinity;
+    for (const ev of sortedRaw) {
+      if (ev.sound_class !== curClass || ev.timestamp - lastTs > SESSION_GAP_S) {
+        curClass = ev.sound_class;
+        curSessionTs = ev.timestamp;
+      }
+      sessionByEvent.set(ev, curSessionTs);
+      lastTs = ev.timestamp;
+    }
+
     const raw: RadarDetection[] = rawEvents.slice(0, 30).map((event) => ({
-      id: `raw-${event.window_id}`,
+      id: `raw-${event.sound_class}-${(sessionByEvent.get(event) ?? event.timestamp).toFixed(2)}`,
       timestamp: event.timestamp,
       sound_class: event.sound_class,
       direction_of_arrival: event.doa_direction_of_arrival,

@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
+import time
 from pathlib import Path
 
 # Configure logging to stderr so it does not pollute the stdout JSON feed.
@@ -40,13 +42,34 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         help="Demo mode: replay a 16 kHz audio file at live speed with fake DOA/distance.",
     )
+    parser.add_argument(
+        "--demo-json",
+        type=Path,
+        help="Demo mode: replay pre-canned events from a JSON file with their emit_at timing.",
+    )
     return parser.parse_args()
+
+
+def replay_demo_json(path: Path) -> None:
+    """Replay events from a demo JSON file, honouring emit_at timings."""
+    events = json.loads(path.read_text())
+    events = sorted(events, key=lambda e: e["emit_at"])
+    start = time.monotonic()
+    for event in events:
+        target = event["emit_at"]
+        elapsed = time.monotonic() - start
+        if target > elapsed:
+            time.sleep(target - elapsed)
+        payload = {k: v for k, v in event.items() if k != "emit_at"}
+        print(json.dumps(payload), flush=True)
 
 
 def main() -> None:
     args = _parse_args()
     try:
-        if args.demo_file is not None:
+        if args.demo_json is not None:
+            replay_demo_json(args.demo_json)
+        elif args.demo_file is not None:
             from pipeline.file_runner import run_file
 
             run_file(args.demo_file, realtime=True, fake_spatial=True)
