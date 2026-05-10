@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertNotification, Priority } from "../types/contracts";
-import { soundEmoji, soundLabel } from "../utils/soundMeta";
+import { soundEmoji } from "../utils/soundMeta";
 
 const PRIORITY_HEX: Record<Priority, string> = {
   high:   "#ff385c",
@@ -33,22 +33,10 @@ export default function MonoSoundDisplay({ alert }: Props) {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.7 }}
               transition={{ duration: 0.22, ease: "easeOut" }}
-              className="flex flex-col items-center gap-3"
+              className="flex flex-col items-center"
             >
               <span className="text-[72px] leading-none select-none" aria-hidden="true">
                 {soundEmoji(alert.sound_class)}
-              </span>
-              <span className="text-[16px] font-semibold text-[#222222] capitalize tracking-tight">
-                {soundLabel(alert.sound_class)}
-              </span>
-              <span
-                className="text-[12px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full"
-                style={{
-                  color: PRIORITY_HEX[alert.priority],
-                  background: `${PRIORITY_HEX[alert.priority]}18`,
-                }}
-              >
-                {alert.priority}
               </span>
             </motion.div>
           ) : (
@@ -77,22 +65,6 @@ export default function MonoSoundDisplay({ alert }: Props) {
           />
         )}
       </div>
-
-      {/* LLM message below the square */}
-      <AnimatePresence mode="wait">
-        {alert && (
-          <motion.p
-            key={`msg-${alert.timestamp}`}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="text-[13px] text-[#3f3f3f] text-center leading-snug max-w-[260px]"
-          >
-            {alert.message}
-          </motion.p>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

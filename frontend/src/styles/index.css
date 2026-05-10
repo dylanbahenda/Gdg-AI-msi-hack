@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'Child Writing';
+  src: url('../../Child-Writing-Regular/ChildWriting-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
 @theme {
   /* ── Airbnb design system ─────────────────────────────────────────── */
 
@@ -35,7 +42,7 @@
   --color-radar-label: #64748b;
 
   /* Typography */
-  --font-sans: 'Inter', -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif;
+  --font-sans: 'Child Writing', 'Inter', -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 
   /* Elevation — single shadow tier (Airbnb) */

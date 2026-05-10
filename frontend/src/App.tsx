@@ -1,36 +1,39 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { AnimatePresence } from "framer-motion";
 import { AlertNotification, RawEvent, SystemInfo } from "./types/contracts";
 import { startMockFeed } from "./mock/mockFeed";
 import { useAlertStream } from "./hooks/useAlertStream";
 import RadarWidget, { RadarDetection } from "./components/RadarWidget";
-import AlertFeed from "./components/AlertFeed";
-import HeaderBar from "./components/HeaderBar";
-import LastAlertBar from "./components/LastAlertBar";
 import MonoSoundDisplay from "./components/MonoSoundDisplay";
-import MonoBanner from "./components/MonoBanner";
-import { soundEmoji } from "./utils/soundMeta";
+import AlertToast from "./components/AlertToast";
 
 // Use mock feed when running in browser without Tauri (pure dev mode).
 const IS_MOCK = !("__TAURI_INTERNALS__" in window);
 
+interface Toast {
+  id: string;
+  alert: AlertNotification;
+}
+
 function App() {
-  const [alerts, setAlerts]           = useState<AlertNotification[]>([]);
-  const [rawEvents, setRawEvents]     = useState<RawEvent[]>([]);
-  const [replayAlert, setReplayAlert] = useState<AlertNotification | null>(null);
-  const [status, setStatus]           = useState<"listening" | "detected" | "error">("listening");
-  const [isMono, setIsMono]           = useState(false);
+  const [alerts, setAlerts]       = useState<AlertNotification[]>([]);
+  const [rawEvents, setRawEvents] = useState<RawEvent[]>([]);
+  const [toasts, setToasts]       = useState<Toast[]>([]);
+  const [isMono, setIsMono]       = useState(false);
+  const toastCountRef             = useRef(0);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const handleNewAlert = useCallback((n: AlertNotification) => {
     setAlerts((prev) => [n, ...prev].slice(0, 50));
-    setReplayAlert(null);
-    setStatus("detected");
-    setTimeout(() => setStatus("listening"), 2000);
+    const id = `toast-${toastCountRef.current++}`;
+    setToasts((prev) => [...prev, { id, alert: n }]);
   }, []);
 
   const handleRawEvent = useCallback((n: RawEvent) => {
     setRawEvents((prev) => [n, ...prev].slice(0, 80));
-    setStatus("detected");
-    setTimeout(() => setStatus("listening"), 800);
   }, []);
 
   const handleSystemInfo = useCallback((info: SystemInfo) => {
@@ -50,8 +53,6 @@ function App() {
     IS_MOCK ? () => {} : handleSystemInfo,
   );
 
-  // The alert shown on the radar: replayed card OR the newest real alert.
-  const radarAlert = replayAlert ?? alerts[0] ?? null;
   const radarDetections = useMemo<RadarDetection[]>(() => {
     const raw: RadarDetection[] = rawEvents.slice(0, 30).map((event) => ({
       id: `raw-${event.window_id}`,
@@ -71,69 +72,55 @@ function App() {
       priority: alert.priority,
       message: alert.message,
     }));
-    const replay = replayAlert
-      ? [{
-          id: `replay-${replayAlert.timestamp}-${replayAlert.sound_class}`,
-          timestamp: replayAlert.timestamp,
-          sound_class: replayAlert.sound_class,
-          direction_of_arrival: replayAlert.direction_of_arrival,
-          distance_estimation: replayAlert.distance_estimation,
-          sed_confidence: replayAlert.sed_confidence,
-          priority: replayAlert.priority,
-          message: replayAlert.message,
-        }]
-      : [];
-    return [...replay, ...grouped, ...raw];
-  }, [alerts, rawEvents, replayAlert]);
+    return [...grouped, ...raw];
+  }, [alerts, rawEvents]);
 
   return (
-    <div className="h-screen w-screen bg-[#f7f7f7] flex flex-col overflow-hidden" style={{ fontFamily: "'Inter', -apple-system, system-ui, sans-serif", color: "#222222" }}>
-      <HeaderBar status={status} sessionCount={alerts.length} />
+    <div
+      className="h-screen w-screen flex items-center overflow-visible"
+      style={{
+        background: "#f7f7f7",
+        fontFamily: "'Child Writing', 'Inter', -apple-system, system-ui, sans-serif",
+        paddingLeft: 10,
+      }}
+    >
+      <div className="relative">
+        {/* Persistent radar (stereo) or square (mono) */}
+        {isMono ? (
+          <MonoSoundDisplay alert={alerts[0] ?? null} />
+        ) : (
+          <div
+            className="relative rounded-full overflow-hidden bg-white"
+            style={{
+              boxShadow:
+                "rgba(0,0,0,0.02) 0 0 0 1px, rgba(0,0,0,0.06) 0 4px 12px, rgba(0,0,0,0.12) 0 8px 20px",
+            }}
+          >
+            <RadarWidget detections={radarDetections} size={440} />
+          </div>
+        )}
 
-      {/* Mono-mode startup banner */}
-      {isMono && <MonoBanner />}
-
-      <div className="flex flex-1 overflow-hidden gap-0">
-        {/* Left panel — Radar (stereo) or Mono sound display */}
-        <div className="flex flex-col items-center justify-center w-[400px] shrink-0 border-r border-[#dddddd] bg-white p-6 gap-5">
-          {isMono ? (
-            <MonoSoundDisplay alert={replayAlert ?? alerts[0] ?? null} />
-          ) : (
-            <>
-              <div
-                className="rounded-full overflow-hidden bg-white"
-                style={{ boxShadow: "rgba(0,0,0,0.02) 0 0 0 1px, rgba(0,0,0,0.06) 0 4px 12px, rgba(0,0,0,0.12) 0 8px 20px" }}
-              >
-                <RadarWidget detections={radarDetections} size={330} />
+        {/* Toast notifications — pop out to the right of the radar */}
+        <div
+          className="absolute top-0 left-full ml-5 flex flex-col gap-3 pointer-events-none"
+          style={{ minWidth: 272 }}
+        >
+          <AnimatePresence initial={false}>
+            {toasts.map((toast) => (
+              <div key={toast.id} className="pointer-events-auto">
+                <AlertToast
+                  alert={toast.alert}
+                  onDismiss={() => dismissToast(toast.id)}
+                />
               </div>
-
-              {/* Latest blip summary */}
-              {radarAlert ? (
-                <div className="w-full rounded-xl bg-[#f7f7f7] border border-[#ebebeb] px-4 py-3">
-                  <p className="text-[12px] text-[#6a6a6a] font-mono text-center leading-relaxed">
-                    <span className="text-[16px] align-middle mr-1" aria-hidden="true">{soundEmoji(radarAlert.sound_class)}</span>
-                    <span className="text-[#222222] font-medium capitalize">{radarAlert.sound_class.replace(/_/g, " ")}</span>
-                    &nbsp;·&nbsp;{radarAlert.direction_of_arrival.toFixed(0)}°
-                    &nbsp;·&nbsp;{radarAlert.distance_estimation.toFixed(1)} m
-                  </p>
-                  <p className="text-[13px] text-[#3f3f3f] text-center mt-1 leading-snug">{radarAlert.message}</p>
-                </div>
-              ) : (
-                <p className="text-[12px] text-[#6a6a6a] italic">Awaiting detections…</p>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Right — Alert feed */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-3">
-          <AlertFeed alerts={alerts} onCardClick={setReplayAlert} showSpatial={!isMono} />
+            ))}
+          </AnimatePresence>
         </div>
       </div>
-
-      <LastAlertBar alert={alerts[0] ?? null} />
     </div>
   );
 }
 
 export default App;
+
+

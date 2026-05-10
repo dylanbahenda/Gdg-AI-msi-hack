@@ -283,9 +283,7 @@ export default function RadarWidget({ detections, size = 320 }: Props) {
         ctx.fillText(soundEmoji(detection.sound_class), x, y + 0.5);
         ctx.restore();
 
-        if (opacity > 0.32) {
-          drawCallout(ctx, detection, x, y, opacity, color, size);
-        }
+
       }
 
       rafRef.current = requestAnimationFrame(draw);
