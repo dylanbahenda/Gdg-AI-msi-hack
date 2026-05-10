@@ -51,7 +51,7 @@ from contracts.types import (
 )
 from modules.doa.distance import compute_distance
 from modules.doa.interface import DOAModel
-from modules.llm.mock import MockLLMReasoner
+from modules.llm.interface import LLMReasoner
 from modules.sed.mock import MockSEDModel
 from pipeline import event_bus
 from pipeline.event_grouper import EventGrouper, GroupedEvent
@@ -127,7 +127,7 @@ async def _run_sed(
 async def _run_doa_gate(
     gate_queue: asyncio.Queue[tuple[SEDOutput, RawChunk]],
     doa_model: DOAModel,
-    llm_reasoner: MockLLMReasoner,
+    llm_reasoner: LLMReasoner,
     grouper: EventGrouper,
     alert_count: list[int],
     latencies_ms: list[float],
@@ -192,7 +192,7 @@ async def _run_doa_gate(
 
 async def _flush_grouper_periodically(
     grouper: EventGrouper,
-    llm_reasoner: MockLLMReasoner,
+    llm_reasoner: LLMReasoner,
     alert_count: list[int],
 ) -> None:
     log = logging.getLogger("flusher")
@@ -205,7 +205,7 @@ async def _flush_grouper_periodically(
 
 async def _emit_alert_for_group(
     loop: asyncio.AbstractEventLoop,
-    llm_reasoner: MockLLMReasoner,
+    llm_reasoner: LLMReasoner,
     grouped: GroupedEvent,
     alert_count: list[int],
     log: logging.Logger,
@@ -260,7 +260,7 @@ async def run_test(num_windows: int = 30) -> None:
     """
     sed_model = MockSEDModel()
     doa_model = DOAModel()
-    llm_reasoner = MockLLMReasoner()
+    llm_reasoner = LLMReasoner()
     grouper = EventGrouper()
 
     raw_queue: asyncio.Queue[RawChunk] = asyncio.Queue(maxsize=64)
