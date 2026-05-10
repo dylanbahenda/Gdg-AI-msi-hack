@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Priority, SoundClass } from "../types/contracts";
-import { soundEmoji, SOUND_IMAGE } from "../utils/soundMeta";
+import { SOUND_IMAGE } from "../utils/soundMeta";
 
 const MAX_DIST_M = 5;
 const BLIP_TTL_MS = 9000;
@@ -71,6 +71,8 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
   const lastTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number>(0);
   const avatarImgRef = useRef<HTMLImageElement | null>(null);
+  const radarBgImgRef = useRef<HTMLImageElement | null>(null);
+  const ringFallbackImgRef = useRef<HTMLImageElement | null>(null);
   const soundImgCacheRef = useRef<Map<SoundClass, HTMLImageElement>>(new Map());
 
   // Preload all sound class images once
@@ -91,6 +93,20 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
     img.src = avatarSrc;
     img.onload = () => { avatarImgRef.current = img; };
   }, [avatarSrc]);
+
+  // Load radar background image
+  useEffect(() => {
+    const img = new window.Image();
+    img.src = "/img/radar.jpg";
+    img.onload = () => { radarBgImgRef.current = img; };
+  }, []);
+
+  // Load ring fallback image for events without a specific image
+  useEffect(() => {
+    const img = new window.Image();
+    img.src = "/img/ring.jpg";
+    img.onload = () => { ringFallbackImgRef.current = img; };
+  }, []);
 
   useEffect(() => {
     for (const detection of detections) {
@@ -133,6 +149,17 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
       ctx.clearRect(0, 0, size, size);
       ctx.fillStyle = COLORS.bg;
       ctx.fillRect(0, 0, size, size);
+
+      // Draw radar.jpg background inside the circle
+      const radarBgImg = radarBgImgRef.current;
+      if (radarBgImg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+        ctx.clip();
+        ctx.drawImage(radarBgImg, cx - radius, cy - radius, radius * 2, radius * 2);
+        ctx.restore();
+      }
 
       ctx.save();
       ctx.beginPath();
@@ -194,6 +221,24 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
       ctx.fillText("L", cx - radius + 14, cy);
       ctx.fillText("BACK", cx, cy + radius - 14);
 
+      // ── Avatar at center (below blips) ────────────────────────
+      const avatarImg = avatarImgRef.current;
+      if (avatarImg) {
+        const r = 32;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.clip();
+        ctx.drawImage(avatarImg, cx - r, cy - r, r * 2, r * 2);
+        ctx.restore();
+        // white ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
       for (const { detection, born } of blipsRef.current) {
         const age = now - born;
         const opacity = Math.max(0, 1 - age / BLIP_TTL_MS);
@@ -228,17 +273,19 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
           ctx.drawImage(soundImg, x - blipR, y - blipR, blipR * 2, blipR * 2);
           ctx.restore();
         } else {
-          // Fallback: white circle + emoji
+          // Fallback: ring.jpg image clipped to circle (no emoji)
+          const fallbackImg = ringFallbackImgRef.current;
           ctx.save();
           ctx.globalAlpha = opacity;
           ctx.beginPath();
           ctx.arc(x, y, blipR, 0, 2 * Math.PI);
-          ctx.fillStyle = "#ffffff";
-          ctx.fill();
-          ctx.font = "18px system-ui, Apple Color Emoji, Segoe UI Emoji";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(soundEmoji(detection.sound_class), x, y + 0.5);
+          ctx.clip();
+          if (fallbackImg) {
+            ctx.drawImage(fallbackImg, x - blipR, y - blipR, blipR * 2, blipR * 2);
+          } else {
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+          }
           ctx.restore();
         }
         // Colored ring around blip
@@ -252,24 +299,6 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         ctx.restore();
 
 
-      }
-
-      // ── Avatar at center ──────────────────────────────────────
-      const avatarImg = avatarImgRef.current;
-      if (avatarImg) {
-        const r = 32;
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-        ctx.clip();
-        ctx.drawImage(avatarImg, cx - r, cy - r, r * 2, r * 2);
-        ctx.restore();
-        // white ring
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-        ctx.strokeStyle = "rgba(255,255,255,0.95)";
-        ctx.lineWidth = 3;
-        ctx.stroke();
       }
 
       rafRef.current = requestAnimationFrame(draw);

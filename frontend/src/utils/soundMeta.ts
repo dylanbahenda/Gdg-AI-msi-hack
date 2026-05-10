@@ -25,7 +25,7 @@ export const SOUND_IMAGE: Record<SoundClass, string | null> = {
   knock:        "/img/knock.jpg",
   metal_sound:  "/img/metal.jpg",
   scream:       "/img/scream.jpg",
-  phone:        null,
+  phone:        "/img/ring.jpg",
 };
 
 export function soundLabel(soundClass: SoundClass): string {
