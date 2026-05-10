@@ -17,6 +17,7 @@ MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {
         "Breaking",
         "Crockery breaking and smashing",
         "Smash, crash",
+        "Glass chink, clink"
     ],
     "doorbell": [
         "Doorbell",
@@ -24,10 +25,8 @@ MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {
     ],
     "metal_sound": [
         "Clang",
-        "Glass chink, clink",
         "Clatter",
         "Clunk",
-        "Slam",
     ],
     "alarm": [
         "Alarm",
@@ -85,15 +84,14 @@ SOURCE_THRESHOLDS: dict[str, float] = {
     "Breaking": 0.10,
     "Crockery breaking and smashing": 0.10,
     "Smash, crash": 0.10,
+    "Glass chink, clink": 0.03,
     # doorbell
     "Doorbell": 0.10,
     "Ding-dong": 0.10,
     # metal_sound
     "Clang": 0.03,
-    "Glass chink, clink": 0.03,
     "Clatter": 0.10,
     "Clunk": 0.10,
-    "Slam": 0.20,
     # alarm
     "Alarm": 0.05,
     "Alarm clock": 0.05,
