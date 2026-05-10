@@ -5,15 +5,9 @@ import { SOUND_IMAGE } from "../utils/soundMeta";
 const MIN_R_FRAC = 0.35;  // inner band boundary (fraction of radar radius)
 const MAX_R_FRAC = 0.82;  // outer band boundary (fraction of radar radius)
 const BLIP_TTL_MS = 9000;
-const SWEEP_PERIOD_MS = 7200;       // one full revolution of the sweep line
+const SWEEP_RPM_MS = 3600;
 const TRAIL_STEPS = 20;
 const TRAIL_ARC = Math.PI / 2;
-
-// Cosmetic stretch: incoming DOA is ±90° (front semicircle is all 2-mic
-// GCC-PHAT can deliver). We multiply by this factor so the dots fill more
-// of the visible disk; what's left over (≈80° around the rear) is a
-// graphical placeholder that the user reads as "the back of the radar".
-const STRETCH_FACTOR = 70 / 45;
 
 const COLORS = {
   bg: "#ffffff",
@@ -59,20 +53,16 @@ interface Props {
   avatarSrc?: string;
 }
 
-function stretchDeg(measuredDeg: number): number {
-  return measuredDeg * STRETCH_FACTOR;
-}
-
 function polarToXY(
-  displayDeg: number,
+  dirDeg: number,
   rFrac: number,
   radiusPx: number,
   cx: number,
   cy: number,
 ) {
   const r = rFrac * radiusPx;
-  // 0° = top (front), +90° = right, -90° = left, ±180° = back.
-  const rad = ((displayDeg - 90) * Math.PI) / 180;
+  // 0° → bottom-centre (back), +90° → right, -90° → left
+  const rad = ((90 - dirDeg) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
@@ -116,7 +106,7 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
   useEffect(() => {
     for (const detection of detections) {
       if (seenRef.current.has(detection.id)) {
-        blipsRef.current = blipsRef.current.map((blip: Blip) =>
+        blipsRef.current = blipsRef.current.map((blip) =>
           blip.detection.id === detection.id ? { ...blip, detection } : blip,
         );
         continue;
@@ -142,63 +132,76 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const cx = size / 2;
-    const cy = size / 2;
+    const cy = size / 2;  // circle centre at vertical midpoint → bottom half visible
     const radius = size / 2 - 18;
-    const TWO_PI = Math.PI * 2;
 
     function draw(now: number) {
       const ctx = drawCtx;
       const dt = lastTimeRef.current == null ? 0 : now - lastTimeRef.current;
       lastTimeRef.current = now;
-      sweepRef.current = (sweepRef.current + (TWO_PI * dt) / SWEEP_PERIOD_MS) % TWO_PI;
-      blipsRef.current = blipsRef.current.filter((b: Blip) => now - b.born < BLIP_TTL_MS);
+      sweepRef.current = (sweepRef.current + (Math.PI * dt) / SWEEP_RPM_MS) % Math.PI;
+      blipsRef.current = blipsRef.current.filter((b) => now - b.born < BLIP_TTL_MS);
 
       ctx.clearRect(0, 0, size, size);
 
-      // Full disk background
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, TWO_PI);
-      ctx.fillStyle = COLORS.bg;
-      ctx.fill();
-
-      // Clip everything to the disk for clean edges
+      // Fill only the bottom semicircle with the background colour
       ctx.save();
       ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, TWO_PI);
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx, cy);
+      ctx.closePath();
+      ctx.fillStyle = COLORS.bg;
+      ctx.fill();
+      ctx.restore();
+
+      // Clip all radar drawing to the bottom semicircle
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx, cy);
+      ctx.closePath();
       ctx.clip();
 
-      // 4 cardinal radials (full diameters through centre)
+      // Diameter line (flat top)
       ctx.beginPath();
       ctx.moveTo(cx - radius, cy);
       ctx.lineTo(cx + radius, cy);
-      ctx.moveTo(cx, cy - radius);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Centre-to-bottom radial
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
       ctx.lineTo(cx, cy + radius);
       ctx.strokeStyle = COLORS.grid;
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // 4 diagonals (45° spokes in all four quadrants)
+      // 45° diagonals
       const d45 = radius * Math.cos(Math.PI / 4);
       ctx.beginPath();
-      ctx.moveTo(cx - d45, cy - d45);
+      ctx.moveTo(cx, cy);
       ctx.lineTo(cx + d45, cy + d45);
-      ctx.moveTo(cx - d45, cy + d45);
-      ctx.lineTo(cx + d45, cy - d45);
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx - d45, cy + d45);
       ctx.strokeStyle = COLORS.grid;
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Concentric range rings
       for (const frac of [MIN_R_FRAC, MAX_R_FRAC]) {
         const r = frac * radius;
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, TWO_PI);
+        ctx.arc(cx, cy, r, 0, Math.PI);
         ctx.strokeStyle = COLORS.ring;
         ctx.lineWidth = 1;
         ctx.stroke();
       }
 
-      // Sweep trail — full revolution
       const sweep = sweepRef.current;
       for (let i = 0; i < TRAIL_STEPS; i++) {
         const t = i / TRAIL_STEPS;
@@ -212,7 +215,6 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         ctx.fill();
       }
 
-      // Sweep line
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.lineTo(cx + radius * Math.cos(sweep), cy + radius * Math.sin(sweep));
@@ -221,22 +223,21 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
       ctx.stroke();
       ctx.restore();
 
-      // Outer ring border
+      // Semicircle border + diameter
       ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, TWO_PI);
+      ctx.arc(cx, cy, radius, 0, Math.PI);
+      ctx.lineTo(cx - radius, cy);
       ctx.strokeStyle = COLORS.border;
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Cardinal labels — placed just inside the rim so they read on a normal radar.
       ctx.fillStyle = COLORS.label;
       ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("FRONT", cx, cy - radius + 12);
-      ctx.fillText("BACK",  cx, cy + radius - 12);
-      ctx.fillText("R",     cx + radius - 14, cy);
-      ctx.fillText("L",     cx - radius + 14, cy);
+      ctx.fillText("BACK", cx, cy + radius - 14);
+      ctx.fillText("R", cx + radius - 14, cy + 12);
+      ctx.fillText("L", cx - radius + 14, cy + 12);
 
       // ── Avatar at center (below blips) ────────────────────────
       const avatarImg = avatarImgRef.current;
@@ -244,12 +245,13 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         const r = 32;
         ctx.save();
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, TWO_PI);
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
         ctx.clip();
         ctx.drawImage(avatarImg, cx - r, cy - r, r * 2, r * 2);
         ctx.restore();
+        // full white ring
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, TWO_PI);
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
         ctx.strokeStyle = "rgba(255,255,255,0.95)";
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -261,7 +263,7 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         if (opacity <= 0) continue;
 
         const { x, y } = polarToXY(
-          stretchDeg(detection.direction_of_arrival),
+          detection.direction_of_arrival,
           randomR,
           radius,
           cx,
@@ -272,7 +274,7 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         ctx.save();
         ctx.globalAlpha = opacity * 0.22;
         ctx.beginPath();
-        ctx.arc(x, y, 18, 0, TWO_PI);
+        ctx.arc(x, y, 18, 0, 2 * Math.PI);
         ctx.fillStyle = color;
         ctx.fill();
         ctx.restore();
@@ -280,19 +282,21 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
         const soundImg = soundImgCacheRef.current.get(detection.sound_class);
         const blipR = soundImg ? 13 : 9;
         if (soundImg) {
+          // Clip image to circle
           ctx.save();
           ctx.globalAlpha = opacity;
           ctx.beginPath();
-          ctx.arc(x, y, blipR, 0, TWO_PI);
+          ctx.arc(x, y, blipR, 0, 2 * Math.PI);
           ctx.clip();
           ctx.drawImage(soundImg, x - blipR, y - blipR, blipR * 2, blipR * 2);
           ctx.restore();
         } else {
+          // Fallback: ring.jpg image clipped to circle (no emoji)
           const fallbackImg = ringFallbackImgRef.current;
           ctx.save();
           ctx.globalAlpha = opacity;
           ctx.beginPath();
-          ctx.arc(x, y, blipR, 0, TWO_PI);
+          ctx.arc(x, y, blipR, 0, 2 * Math.PI);
           ctx.clip();
           if (fallbackImg) {
             ctx.drawImage(fallbackImg, x - blipR, y - blipR, blipR * 2, blipR * 2);
@@ -302,14 +306,17 @@ export default function RadarWidget({ detections, size = 320, avatarSrc }: Props
           }
           ctx.restore();
         }
+        // Colored ring around blip
         ctx.save();
         ctx.globalAlpha = opacity;
         ctx.beginPath();
-        ctx.arc(x, y, blipR, 0, TWO_PI);
+        ctx.arc(x, y, blipR, 0, 2 * Math.PI);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.restore();
+
+
       }
 
       rafRef.current = requestAnimationFrame(draw);
