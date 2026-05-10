@@ -16,8 +16,7 @@ MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {
         "Glass shatter",
         "Breaking",
         "Crockery breaking and smashing",
-        "Smash, crash",
-        "Glass chink, clink"
+        "Smash, crash"
     ],
     "doorbell": [
         "Doorbell",
@@ -27,6 +26,7 @@ MACRO_TO_SOURCES: dict[SoundClass, list[str]] = {
         "Clang",
         "Clatter",
         "Clunk",
+        "Glass chink, clink"
     ],
     "alarm": [
         "Alarm",
